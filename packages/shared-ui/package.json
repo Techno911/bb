@@ -254,6 +254,11 @@
       "types": "./src/lib/portal-scope.ts",
       "default": "./src/lib/portal-scope.ts"
     },
+    "./lib/text-list-continuation": {
+      "source": "./src/lib/text-list-continuation.ts",
+      "types": "./src/lib/text-list-continuation.ts",
+      "default": "./src/lib/text-list-continuation.ts"
+    },
     "./question-form": {
       "source": "./src/components/ui/question-form.tsx",
       "types": "./src/components/ui/question-form.tsx",

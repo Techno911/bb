@@ -21,6 +21,7 @@ import { Button } from "@bb/shared-ui/button";
 import { Icon } from "@bb/shared-ui/icon";
 import { usePointerCoarse } from "@bb/shared-ui/hooks/use-pointer-coarse";
 import { cn } from "@bb/shared-ui/lib/utils";
+import { planTextareaListContinuation } from "@bb/shared-ui/lib/text-list-continuation";
 import {
   answerStateFor,
   buildQuestionAnswers,
@@ -224,15 +225,30 @@ function QuestionInputBlock({
   const handleFreeTextKeyDown = (
     event: KeyboardEvent<HTMLTextAreaElement>,
   ): void => {
-    if (
-      event.nativeEvent.isComposing ||
-      event.key !== "Enter" ||
-      (!event.metaKey && !event.ctrlKey)
-    ) {
+    if (event.nativeEvent.isComposing || event.key !== "Enter") return;
+
+    if (event.metaKey || event.ctrlKey) {
+      event.preventDefault();
+      onShortcutSubmit();
       return;
     }
+
+    // A new line inside a list carries the next marker with it, the same way
+    // the prompt box does.
+    if (event.altKey) return;
+    const field = event.currentTarget;
+    const continuation = planTextareaListContinuation(
+      field.value,
+      field.selectionStart,
+      field.selectionEnd,
+    );
+    if (continuation === null) return;
     event.preventDefault();
-    onShortcutSubmit();
+    onFreeTextChange(continuation.value);
+    requestAnimationFrame(() => {
+      field.setSelectionRange(continuation.caret, continuation.caret);
+      resizeFreeTextArea();
+    });
   };
 
   return (

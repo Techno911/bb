@@ -214,6 +214,51 @@ describe("answering a single-select question", () => {
       "false",
     );
   });
+
+  function openFreeText(
+    slot: ReturnType<typeof render>,
+    value: string,
+  ): HTMLTextAreaElement {
+    fireEvent.click(getButtonByText(slot, "Other…"));
+    const textarea = slot.getByLabelText("Database answer");
+    if (!(textarea instanceof HTMLTextAreaElement)) {
+      throw new Error("the free-text answer is not a textarea");
+    }
+    fireEvent.change(textarea, { target: { value } });
+    textarea.setSelectionRange(value.length, value.length);
+    return textarea;
+  }
+
+  it("carries the list marker onto the next line of a free-text answer", () => {
+    const slot = render(singleSelect);
+    const textarea = openFreeText(slot, "1. first");
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(textarea.value).toBe("1. first\n2. ");
+  });
+
+  it("drops the marker when a list item holds nothing else", () => {
+    const slot = render(singleSelect);
+    const textarea = openFreeText(slot, "- first\n- ");
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(textarea.value).toBe("- first\n");
+  });
+
+  it("still submits on meta+Enter instead of continuing the list", () => {
+    const submit = vi.fn<(value: InteractionResponse) => Promise<void>>(
+      async () => undefined,
+    );
+    const slot = render(singleSelect, { submit });
+    const textarea = openFreeText(slot, "1. first");
+
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
+
+    expect(textarea.value).toBe("1. first");
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("multi-select and multi-question flows", () => {
