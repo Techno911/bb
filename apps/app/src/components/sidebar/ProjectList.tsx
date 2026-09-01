@@ -8,8 +8,7 @@ import {
   type PointerEventHandler,
   type ReactNode,
 } from "react";
-import { useNavigate } from "react-router-dom";
-import { useAtom, useAtomValue, useSetAtom, useStore } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import type {
   ProjectResponse,
   ThreadSectionResponse,
@@ -41,15 +40,10 @@ import { useHosts, usePrimaryHost } from "@/hooks/queries/host-queries";
 import { useDialogState } from "@/hooks/useDialogState";
 import { usePromptDraftInputThreadIds } from "@/hooks/usePromptDraftStorage";
 import { getCollapsedChildActivity } from "@bb/client-core";
-import { getRootComposeRoutePath } from "@/lib/route-paths";
-import { openPaneContentInSplit } from "@/lib/split-layout/openPaneContentInSplit";
-import { useIsCompactViewport } from "@bb/shared-ui/hooks/use-compact-viewport";
-
-const NEW_THREAD_PANE_CONTENT = { kind: "new-thread" } as const;
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import { getThreadDisplayTitle } from "@/lib/thread-title";
 import { getMutationErrorMessage } from "@/lib/mutation-errors";
 import { BbHttpError } from "@bb/sdk/browser";
-import { useSetRootComposeProjectId } from "@/lib/root-compose-selection";
 import { cn } from "@bb/shared-ui/lib/utils";
 import { Button } from "@bb/shared-ui/button";
 import { AppCommandShortcutHint } from "@/components/commands/AppCommandShortcutHint";
@@ -1519,10 +1513,7 @@ function ProjectListComponent({
   onProjectSelect,
   isCreatingProject = false,
 }: ProjectListProps) {
-  const navigate = useNavigate();
-  const store = useStore();
-  const isCompactViewport = useIsCompactViewport();
-  const setRootComposeProjectId = useSetRootComposeProjectId();
+  const openNewThreadPane = useOpenNewThreadPane();
   const sidebarNavigationQuery = useSidebarNavigation();
   const sidebarNavigation = sidebarNavigationQuery.data;
   const sections = sidebarNavigation?.sections ?? EMPTY_SECTION_DEFINITIONS;
@@ -1594,23 +1585,13 @@ function ProjectListComponent({
   );
   const openRootComposeForProject = useCallback(
     (projectId: string, sectionId?: string) => {
-      setRootComposeProjectId(projectId);
       onProjectSelect?.();
-      const state = {
-        focusPrompt: true,
-        ...(sectionId ? { sectionId } : {}),
-      };
-      openPaneContentInSplit({
-        store,
-        navigate: (route, options) => {
-          navigate(route, { ...options, state });
-        },
-        content: NEW_THREAD_PANE_CONTENT,
-        route: getRootComposeRoutePath(),
-        enabled: !isCompactViewport,
+      openNewThreadPane({
+        projectId,
+        ...(sectionId ? { state: { sectionId } } : {}),
       });
     },
-    [isCompactViewport, navigate, onProjectSelect, setRootComposeProjectId, store],
+    [onProjectSelect, openNewThreadPane],
   );
   const handleCreateProjectThread = useCallback(
     (projectId: string) => {

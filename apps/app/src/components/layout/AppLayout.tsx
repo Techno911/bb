@@ -111,7 +111,7 @@ import { splitLayoutAtom } from "@/lib/split-layout/atoms";
 import { findPaneByThread } from "@/lib/split-layout";
 import { applyThreadOpenToLayout } from "@/views/thread-detail/splitThreadNavigation";
 import { useAppSettingsRouteMemory } from "@/hooks/useAppSettingsRouteMemory";
-import { useSetRootComposeProjectId } from "@/lib/root-compose-selection";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 
 const SIDEBAR_WIDTH_KEY = "bb.sidebar.width";
 const SIDEBAR_OPEN_KEY = "bb.sidebar.open";
@@ -442,7 +442,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     toolsBackRoutePath,
     toolsRoutePath,
   } = useAppSettingsRouteMemory();
-  const setRootComposeProjectId = useSetRootComposeProjectId();
+  const openNewThreadPane = useOpenNewThreadPane();
   useEffect(
     () =>
       wsManager.onThreadOpen((signal) => {
@@ -468,12 +468,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     [isCompactViewport, navigate, store],
   );
   useAppCommandHandler("thread.new", () => {
-    if (projectId !== undefined) {
-      setRootComposeProjectId(projectId);
-    }
-    void navigate(getRootComposeRoutePath(), {
-      state: { focusPrompt: true },
-    });
+    openNewThreadPane(projectId === undefined ? {} : { projectId });
     return true;
   });
   useAppCommandHandler("settings.open", () => {

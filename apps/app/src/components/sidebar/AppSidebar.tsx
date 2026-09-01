@@ -30,7 +30,7 @@ import {
   MACOS_WINDOW_DRAG_CLASS,
   shouldUseMacosDesktopChrome,
 } from "@/lib/bb-desktop";
-import { getRootComposeRoutePath, getThreadRoutePath } from "@/lib/route-paths";
+import { getThreadRoutePath } from "@/lib/route-paths";
 import { usePaneContentSplitDrag } from "./usePaneContentSplitDrag";
 import { openUrlInExternalBrowser } from "@/lib/url-open-routing";
 import {
@@ -49,6 +49,7 @@ import {
   useIndexedAppCommandHandlers,
 } from "@/components/commands/AppCommandProvider";
 import { useRouteState } from "@/hooks/useRouteState";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 
 const NEW_THREAD_PANE_CONTENT = { kind: "new-thread" } as const;
 
@@ -76,6 +77,7 @@ export function AppSidebar({
   mobileHosted,
 }: AppSidebarProps) {
   const quickCreateProject = useQuickCreateProjectController();
+  const openNewThreadPane = useOpenNewThreadPane();
   const threadListReplacement = useThreadListReplacement();
   const { threadId: activeThreadId } = useRouteState();
   const navigate = useNavigate();
@@ -102,10 +104,8 @@ export function AppSidebar({
 
   const handleNewChat = useCallback(() => {
     closeOnMobile();
-    void navigate(getRootComposeRoutePath(), {
-      state: { focusPrompt: true },
-    });
-  }, [closeOnMobile, navigate]);
+    openNewThreadPane();
+  }, [closeOnMobile, openNewThreadPane]);
 
   const showThreadShortcuts = useCallback(() => {
     const targets = getSidebarThreadShortcutTargets(sidebarRef.current);

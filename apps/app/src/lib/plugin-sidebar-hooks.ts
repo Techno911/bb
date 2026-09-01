@@ -23,12 +23,9 @@ import { useSidebarNavigation } from "@/hooks/queries/sidebar-navigation-query";
 import { useUpdateThread } from "@/hooks/mutations/thread-state-mutations";
 import { useRouteNavigate } from "@/components/ui/app-route-anchor";
 import { toPluginSidebarThread } from "./plugin-sidebar-threads";
-import { useSetRootComposeProjectId } from "./root-compose-selection";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import { openThreadInSplit } from "./split-layout/openThreadInSplit";
-import {
-  getRootComposeRoutePath,
-  getThreadRoutePath,
-} from "./route-paths";
+import { getThreadRoutePath } from "./route-paths";
 
 const EMPTY_THREADS: readonly PluginSidebarThread[] = [];
 const EMPTY_PROJECTS: readonly PluginSidebarProject[] = [];
@@ -122,7 +119,7 @@ export function useSidebarThreadActions(): PluginSidebarThreadActions {
   const navigate = useRouteNavigate();
   const store = useStore();
   const isCompact = useIsCompactViewport();
-  const setRootComposeProjectId = useSetRootComposeProjectId();
+  const openNewThreadPane = useOpenNewThreadPane();
   const hostActions = useThreadActions();
   const entriesById = useThreadEntryMap();
   const { mutateAsync: updateThreadAsync } = useUpdateThread();
@@ -158,11 +155,7 @@ export function useSidebarThreadActions(): PluginSidebarThreadActions {
       },
       openNewThread(options) {
         const projectId = options?.projectId;
-        if (projectId !== undefined) {
-          setRootComposeProjectId(projectId);
-        }
-        const state = options?.focusPrompt ? { focusPrompt: true } : undefined;
-        navigate(getRootComposeRoutePath(), state ? { state } : undefined);
+        openNewThreadPane(projectId === undefined ? {} : { projectId });
       },
       async setPinned(threadId, pinned) {
         const entry = requireEntry(threadId);
@@ -190,8 +183,8 @@ export function useSidebarThreadActions(): PluginSidebarThreadActions {
       hostActions,
       isCompact,
       navigate,
+      openNewThreadPane,
       requireEntry,
-      setRootComposeProjectId,
       store,
       updateThreadAsync,
     ],

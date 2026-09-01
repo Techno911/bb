@@ -30,10 +30,8 @@ import {
 } from "@/components/plugin/plugin-provenance";
 import { PLUGINS_INSTALLED_DESCRIPTION } from "@/components/plugin/plugins-collection-copy";
 import { usePluginList } from "@/hooks/queries/plugin-settings-queries";
-import {
-  getPluginDetailRoutePath,
-  getRootComposeRoutePath,
-} from "@/lib/route-paths";
+import { getPluginDetailRoutePath } from "@/lib/route-paths";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 
 type PluginsCollectionMode = "installed" | "browse";
 
@@ -44,6 +42,7 @@ function modeFromSearchParams(value: string | null): PluginsCollectionMode {
 
 export function PluginsOverview() {
   const navigate = useNavigate();
+  const openNewThreadPane = useOpenNewThreadPane();
   const [searchParams] = useSearchParams();
   const listQuery = usePluginList({ enabled: true });
   const plugins = useMemo(
@@ -133,9 +132,8 @@ export function PluginsOverview() {
   });
 
   const startCreatePlugin = (prompt?: string) => {
-    navigate(getRootComposeRoutePath(), {
+    openNewThreadPane({
       state: {
-        focusPrompt: true,
         initialPrompt: prompt ?? CREATE_PLUGIN_PROMPT,
         replaceInitialPrompt: prompt !== undefined,
       },

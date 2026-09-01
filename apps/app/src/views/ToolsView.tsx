@@ -46,8 +46,8 @@ import { useLocalOpenTargets } from "@/hooks/useLocalOpenTargets";
 import {
   TOOLS_REGISTRY_SKILLS_ROUTE_PATH,
   TOOLS_SKILLS_ROUTE_PATH,
-  getRootComposeRoutePath,
 } from "@/lib/route-paths";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import {
   getToolsOwnedCollectionRoutePath,
   resolveToolsSection,
@@ -153,6 +153,7 @@ function PluginsToolView({ pluginId }: { pluginId: string | undefined }) {
 
 function PluginDetailToolView({ pluginId }: { pluginId: string }) {
   const navigate = useNavigate();
+  const openNewThreadPane = useOpenNewThreadPane();
   const [deleteTarget, setDeleteTarget] = useState<PluginListItem | null>(null);
   const [installTarget, setInstallTarget] =
     useState<PluginCatalogSearchEntry | null>(null);
@@ -225,9 +226,8 @@ function PluginDetailToolView({ pluginId }: { pluginId: string }) {
         : null;
   const handleEditPlugin = useCallback(
     (plugin: PluginListItem) => {
-      navigate(getRootComposeRoutePath(), {
+      openNewThreadPane({
         state: {
-          focusPrompt: true,
           initialPrompt: buildPluginEditThreadPrompt({
             name: plugin.name ?? plugin.id,
             path: plugin.rootDir,
@@ -236,7 +236,7 @@ function PluginDetailToolView({ pluginId }: { pluginId: string }) {
         },
       });
     },
-    [navigate],
+    [openNewThreadPane],
   );
   const handleOpenPluginSource = useCallback(
     (plugin: PluginListItem) => {

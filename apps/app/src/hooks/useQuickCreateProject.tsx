@@ -5,7 +5,6 @@ import {
   useMemo,
   type ReactNode,
 } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
 import { deriveProjectNameFromPath, type Host } from "@bb/domain";
 import type { HostPlatform } from "@bb/host-daemon-contract";
 import { useCreateProject } from "@/hooks/mutations/project-mutations";
@@ -14,11 +13,7 @@ import {
   useLocalPathPicker,
   type LocalPathSubmitParams,
 } from "@/hooks/useLocalPathPicker";
-import {
-  APP_ROOT_ROUTE_PATH,
-  getRootComposeRoutePath,
-} from "@/lib/route-paths";
-import { useSetRootComposeProjectId } from "@/lib/root-compose-selection";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import type {
   ProjectPathDialogSubmitHandler,
   ProjectPathDialogTarget,
@@ -50,10 +45,7 @@ export function useQuickCreateProject(): QuickCreateProjectController {
   const { mutate, isPending } = useCreateProject();
   const hostsQuery = useHosts();
   const hosts = hostsQuery.data ?? EMPTY_HOSTS;
-  const navigate = useNavigate();
-  const location = useLocation();
-  const setRootComposeProjectId = useSetRootComposeProjectId();
-  const shouldReplaceRoute = location.pathname === APP_ROOT_ROUTE_PATH;
+  const openNewThreadPane = useOpenNewThreadPane();
 
   const submit = useCallback(
     ({ path, hostId, target, closeDialog }: LocalPathSubmitParams) => {
@@ -69,15 +61,12 @@ export function useQuickCreateProject(): QuickCreateProjectController {
         {
           onSuccess: (project) => {
             closeDialog();
-            setRootComposeProjectId(project.id);
-            void navigate(getRootComposeRoutePath(), {
-              replace: shouldReplaceRoute,
-            });
+            openNewThreadPane({ projectId: project.id });
           },
         },
       );
     },
-    [mutate, navigate, setRootComposeProjectId, shouldReplaceRoute],
+    [mutate, openNewThreadPane],
   );
 
   const controller = useLocalPathPicker({
