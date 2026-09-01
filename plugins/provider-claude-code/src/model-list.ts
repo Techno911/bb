@@ -40,6 +40,22 @@ function withOneMillionContext(model: string): string {
 
 const CLAUDE_CODE_SELECTED_ONLY_CATALOG: readonly ClaudeCodeCatalogEntry[] = [
   {
+    id: "claude-mythos-5-1",
+    model: "claude-mythos-5-1",
+    displayName: "Mythos 5.1",
+    description: "Mythos 5.1 with 1M context for demanding reasoning",
+    supportedReasoningEfforts: CLAUDE_XHIGH_CAPABLE_REASONING_EFFORTS,
+    defaultReasoningEffort: "high",
+  },
+  {
+    id: "claude-fable-5",
+    model: "claude-fable-5",
+    displayName: "Fable 5 (Legacy)",
+    description: "Legacy Fable 5 model retained for existing selections",
+    supportedReasoningEfforts: CLAUDE_XHIGH_CAPABLE_REASONING_EFFORTS,
+    defaultReasoningEffort: "high",
+  },
+  {
     id: withOneMillionContext(CLAUDE_SONNET_4_6_MODEL),
     model: withOneMillionContext(CLAUDE_SONNET_4_6_MODEL),
     displayName: "Sonnet 4.6 (1M)",
