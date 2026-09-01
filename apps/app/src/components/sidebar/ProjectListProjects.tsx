@@ -62,7 +62,7 @@ export const SortableProjectRow = memo(function SortableProjectRow({
 }: SortableProjectRowProps) {
   const { dragBindings, setNodeRef, style } = useSidebarSortable({
     id: sortableId,
-    disabled: reorderDisabled,
+    disabled: { draggable: reorderDisabled, droppable: false },
   });
 
   return (

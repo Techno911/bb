@@ -134,7 +134,10 @@ import {
   type BuiltInSidebarSectionOptions,
   type BuiltInSidebarSectionOptionsById,
 } from "./BuiltInSidebarSection";
-import { SectionThreadDndProvider } from "./SectionThreadDndContext";
+import {
+  SectionThreadDndProvider,
+  useSidebarThreadDnd,
+} from "./SectionThreadDndContext";
 
 const SIDEBAR_STICKY_PARENT_DEPTH_CAP = 4;
 
@@ -160,6 +163,7 @@ export interface ProjectRowProps {
   collapsedThreadIds: Set<string>;
   collapsedEnvironmentIds: Set<string>;
   isLocalPathInvalid: boolean;
+  isDropTargetActive?: boolean;
   headerActions?: ReactNode;
   headerActionsOpen?: boolean;
   onProjectSelect?: () => void;
@@ -1264,7 +1268,11 @@ export function DropPreviewRow({
   );
 }
 
-function SectionThreadDragOverlay({ thread }: { thread: ThreadListEntry }) {
+export function SectionThreadDragOverlay({
+  thread,
+}: {
+  thread: ThreadListEntry;
+}) {
   return (
     <div
       aria-hidden="true"
@@ -1850,6 +1858,7 @@ export const ProjectThreadTree = memo(function ProjectThreadTree({
       ? threadListState.threads
       : EMPTY_PROJECT_THREADS;
   const draftThreadIds = usePromptDraftInputThreadIds(projectThreads);
+  const sidebarThreadDnd = useSidebarThreadDnd();
   const rootItems = useMemo(
     () =>
       buildProjectThreadGroups(projectThreads, compareThreads, draftThreadIds),
@@ -1889,7 +1898,7 @@ export const ProjectThreadTree = memo(function ProjectThreadTree({
   return (
     <SectionThreadTreeItems
       items={rootItems}
-      sectionDnd={null}
+      sectionDnd={sidebarThreadDnd}
       variant={variant}
       projectId={projectId}
       sortableParentKey={projectId}
@@ -1945,12 +1954,34 @@ export const ChronologicalSectionThreadSections = memo(
     const persistedSectionItems = rootItems.filter(
       (item) => item.kind === "section",
     );
+    const lookup = useMemo(
+      () =>
+        collectSectionThreadDndLookup(
+          rootItems,
+          CHRONOLOGICAL_CONTAINER_ID,
+          pinnedThreads,
+        ),
+      [pinnedThreads, rootItems],
+    );
+    const setCollapsedSections = useSetAtom(sidebarCollapsedThreadSectionsAtom);
+    const handleExpandDropParent = useCallback(
+      (parentKey: string) => {
+        setCollapsedSections((current) =>
+          current.includes(parentKey)
+            ? current.filter((key) => key !== parentKey)
+            : current,
+        );
+      },
+      [setCollapsedSections],
+    );
     const sectionDnd = useSectionThreadDnd({
-      containerId: CHRONOLOGICAL_CONTAINER_ID,
       enabled:
         topLevelSectionOrder.length > 1 || persistedSectionItems.length > 0,
-      rootItems,
+      lookup,
+      moveTarget: "section",
+      onExpandDropParent: handleExpandDropParent,
       topLevelSectionOrder,
+      topLevelSectionReorderOrder: topLevelSectionOrder,
       onTopLevelSectionOrderChange,
       pinnedReorderPending,
       pinnedThreads,
@@ -1958,7 +1989,7 @@ export const ChronologicalSectionThreadSections = memo(
     });
     const renderedRootItems = useMemo(() => {
       const activeThread = sectionDnd?.activeThread;
-      const projectedSectionId = sectionDnd?.projectedSectionId;
+      const projectedSectionId = sectionDnd?.projectedTargetId;
       if (!activeThread || projectedSectionId === undefined) {
         return rootItems;
       }
@@ -2205,6 +2236,7 @@ function ProjectRowComponent({
   collapsedThreadIds,
   collapsedEnvironmentIds,
   isLocalPathInvalid,
+  isDropTargetActive = false,
   headerActions,
   headerActionsOpen = false,
   onProjectSelect,
@@ -2340,6 +2372,7 @@ function ProjectRowComponent({
           collapsedThreads={projectThreads}
           consumeClickSuppression={consumeProjectClickSuppression}
           dragBindings={projectDragBindings}
+          isDropTargetActive={isDropTargetActive}
           sectionRef={projectRowRef}
           sectionStyle={projectRowStyle}
         >
@@ -2443,6 +2476,7 @@ function areProjectRowPropsEqual(
     prev.isCollapsed !== next.isCollapsed ||
     prev.compareThreads !== next.compareThreads ||
     prev.isLocalPathInvalid !== next.isLocalPathInvalid ||
+    prev.isDropTargetActive !== next.isDropTargetActive ||
     prev.headerActions !== next.headerActions ||
     prev.headerActionsOpen !== next.headerActionsOpen ||
     prev.onProjectSelect !== next.onProjectSelect ||

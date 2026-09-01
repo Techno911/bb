@@ -1,10 +1,12 @@
 import type { ThreadListEntry } from "@bb/domain";
 import { describe, expect, it } from "vitest";
 import {
+  buildProjectThreadGroups,
   buildSectionThreadList,
   CHRONOLOGICAL_CONTAINER_ID,
 } from "@bb/client-core";
 import {
+  collectProjectThreadDndLookup,
   collectSectionThreadDndLookup,
   PINNED_THREAD_PARENT_KEY,
   resolveSectionThreadDropDecision,
@@ -213,6 +215,7 @@ describe("section thread pin drop decisions", () => {
     expect(
       resolveSectionThreadDropDecision(
         createLookupWithPinnedThread(),
+        "section",
         "loose",
         "pinned",
       ),
@@ -223,6 +226,7 @@ describe("section thread pin drop decisions", () => {
     expect(
       resolveSectionThreadDropDecision(
         createLookupWithPinnedThread(),
+        "section",
         "loose",
         "loose",
         PINNED_THREAD_PARENT_KEY,
@@ -234,13 +238,14 @@ describe("section thread pin drop decisions", () => {
     expect(
       resolveSectionThreadDropDecision(
         createLookupWithPinnedThread(),
+        "section",
         "pinned-1",
         "threads",
       ),
     ).toEqual({
       kind: "unpin",
       activeId: "pinned-1",
-      sectionId: null,
+      targetId: null,
       move: true,
     });
   });
@@ -249,13 +254,14 @@ describe("section thread pin drop decisions", () => {
     expect(
       resolveSectionThreadDropDecision(
         createLookupWithPinnedThread(),
+        "section",
         "pinned-1",
         "section:a",
       ),
     ).toEqual({
       kind: "unpin",
       activeId: "pinned-1",
-      sectionId: "a",
+      targetId: "a",
       move: false,
     });
   });
@@ -264,6 +270,7 @@ describe("section thread pin drop decisions", () => {
     expect(
       resolveSectionThreadDropDecision(
         createLookupWithPinnedThread(),
+        "section",
         "pinned-1",
         "pinned-2",
       ),
@@ -272,5 +279,96 @@ describe("section thread pin drop decisions", () => {
       activeId: "pinned-1",
       overId: "pinned-2",
     });
+  });
+});
+
+
+function createProjectLookup() {
+  return collectProjectThreadDndLookup(
+    [
+      {
+        parentKey: "proj_a",
+        sectionId: "project:proj_a",
+        items: buildProjectThreadGroups([
+          createThread({ id: "in-a", projectId: "proj_a" }),
+        ]),
+      },
+      {
+        parentKey: "proj_b",
+        sectionId: "project:proj_b",
+        items: [],
+      },
+    ],
+    [
+      createThread({ id: "pinned-1", projectId: "proj_a", pinnedAt: 10 }),
+      createThread({ id: "pinned-2", projectId: "proj_b", pinnedAt: 9 }),
+    ],
+  );
+}
+
+describe("project thread drop decisions", () => {
+  it("moves a thread dropped on another project row", () => {
+    expect(
+      resolveSectionThreadDropDecision(
+        createProjectLookup(),
+        "project",
+        "in-a",
+        "project:proj_b",
+      ),
+    ).toEqual({ kind: "move", activeId: "in-a", targetId: "proj_b" });
+  });
+
+  it("ignores a drop back on the owning project", () => {
+    expect(
+      resolveSectionThreadDropDecision(
+        createProjectLookup(),
+        "project",
+        "in-a",
+        "project:proj_a",
+      ),
+    ).toBeNull();
+  });
+
+  it("unpins and moves a pinned thread dropped on another project", () => {
+    expect(
+      resolveSectionThreadDropDecision(
+        createProjectLookup(),
+        "project",
+        "pinned-1",
+        "project:proj_b",
+      ),
+    ).toEqual({
+      kind: "unpin",
+      activeId: "pinned-1",
+      targetId: "proj_b",
+      move: true,
+    });
+  });
+
+  it("unpins without a redundant move when the project is unchanged", () => {
+    expect(
+      resolveSectionThreadDropDecision(
+        createProjectLookup(),
+        "project",
+        "pinned-1",
+        "project:proj_a",
+      ),
+    ).toEqual({
+      kind: "unpin",
+      activeId: "pinned-1",
+      targetId: "proj_a",
+      move: false,
+    });
+  });
+
+  it("pins a project thread dropped on the Pinned section", () => {
+    expect(
+      resolveSectionThreadDropDecision(
+        createProjectLookup(),
+        "project",
+        "in-a",
+        "pinned",
+      ),
+    ).toEqual({ kind: "pin", activeId: "in-a" });
   });
 });

@@ -545,9 +545,9 @@ a transient failure.
 
 ## Thread splits
 
-Thread splits enable up to eight panes in the app's multi-pane thread view and
+Thread splits enable up to 64 panes in the app's multi-pane thread view and
 its sidebar, menu, and keyboard split controls. Edge placement creates panes
-through the eighth pane; at the eight-pane limit, opening a new thread with an
+through the 64th pane; at that limit, opening a new thread with an
 edge placement replaces the focused pane. Every pane header can temporarily
 maximize that pane without unmounting or resizing the underlying split tree;
 the same control restores the exact arrangement. Maximization follows focus and

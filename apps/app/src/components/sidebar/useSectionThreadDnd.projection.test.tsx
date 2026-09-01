@@ -100,10 +100,21 @@ function renderSectionThreadDnd() {
   return renderHook(
     () =>
       useSectionThreadDnd({
-        containerId: CHRONOLOGICAL_CONTAINER_ID,
         enabled: true,
-        rootItems: ROOT_ITEMS,
+        lookup: collectSectionThreadDndLookup(
+          ROOT_ITEMS,
+          CHRONOLOGICAL_CONTAINER_ID,
+          [],
+        ),
+        moveTarget: "section",
+        onExpandDropParent: vi.fn(),
         topLevelSectionOrder: ["pinned", "section:a", "section:b", "threads"],
+        topLevelSectionReorderOrder: [
+          "pinned",
+          "section:a",
+          "section:b",
+          "threads",
+        ],
         onTopLevelSectionOrderChange: vi.fn(),
         pinnedReorderPending: false,
         pinnedThreads: [],
@@ -131,20 +142,20 @@ describe("useSectionThreadDnd projection feedback loop (#1830)", () => {
     act(() => props().onDragStart?.(dragStart("dragged")));
     act(() => props().onDragOver?.(dragOver("dragged", "section:b")));
     expect(result.current?.dragOverParentKey).toBe(SECTION_B_PARENT_KEY);
-    expect(result.current?.projectedSectionId).toBe("b");
+    expect(result.current?.projectedTargetId).toBe("b");
 
     act(() => props().onDragOver?.(dragOver("dragged", "peer-a")));
     expect(result.current?.dragOverParentKey).toBe(SECTION_B_PARENT_KEY);
-    expect(result.current?.projectedSectionId).toBe("b");
+    expect(result.current?.projectedTargetId).toBe("b");
 
     act(() => props().onDragOver?.(dragOver("dragged", "loose")));
     expect(result.current?.dragOverParentKey).toBe(CHRONOLOGICAL_CONTAINER_ID);
-    expect(result.current?.projectedSectionId).toBeNull();
+    expect(result.current?.projectedTargetId).toBeNull();
 
     act(() => notePointerMove());
     act(() => props().onDragOver?.(dragOver("dragged", "peer-a")));
     expect(result.current?.dragOverParentKey).toBeNull();
-    expect(result.current?.projectedSectionId).toBeUndefined();
+    expect(result.current?.projectedTargetId).toBeUndefined();
 
     act(() => notePointerMove());
     act(() => props().onDragOver?.(dragOver("dragged", "section:b")));

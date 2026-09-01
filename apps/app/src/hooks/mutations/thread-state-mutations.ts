@@ -42,7 +42,8 @@ type UpdateThreadMutationRequest = ThreadMutationRequest & UpdateThreadRequest;
 type ReorderPinnedThreadMutationRequest = ThreadMutationRequest &
   ReorderPinnedThreadRequest;
 type UnpinAndMoveThreadMutationRequest = ThreadMutationRequest & {
-  sectionId: string | null;
+  projectId?: string;
+  sectionId?: string | null;
 };
 
 interface UpdateThreadMutationOptions {
@@ -77,15 +78,21 @@ export function useUpdateThread(options?: UpdateThreadMutationOptions) {
     mutationFn: ({ id, ...request }: UpdateThreadMutationRequest) =>
       sdk.threads.update({ threadId: id, ...request }),
     onMutate: ({
+      projectId,
       sectionId,
       id,
       title,
     }): Promise<ThreadListMutationTransaction | undefined> | undefined => {
-      if (title === undefined && sectionId === undefined) {
+      if (
+        title === undefined &&
+        projectId === undefined &&
+        sectionId === undefined
+      ) {
         return undefined;
       }
 
       return beginThreadMetadataTransaction({
+        projectId,
         sectionId,
         queryClient,
         threadId: id,
@@ -181,12 +188,20 @@ export function useUnpinAndMoveThread() {
     meta: {
       errorMessage: "Failed to unpin and move thread.",
     },
-    mutationFn: async ({ sectionId, id }) => {
-      await sdk.threads.unpin({ threadId: id });
-      return sdk.threads.update({ sectionId, threadId: id });
+    mutationFn: async ({ projectId, sectionId, id }) => {
+      const unpinned = await sdk.threads.unpin({ threadId: id });
+      if (projectId === undefined && sectionId === undefined) {
+        return unpinned;
+      }
+      return sdk.threads.update({
+        ...(projectId !== undefined ? { projectId } : {}),
+        ...(sectionId !== undefined ? { sectionId } : {}),
+        threadId: id,
+      });
     },
-    onMutate: async ({ sectionId, id }) =>
+    onMutate: async ({ projectId, sectionId, id }) =>
       beginUnpinAndMoveThreadTransaction({
+        projectId,
         sectionId,
         queryClient,
         threadId: id,

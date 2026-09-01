@@ -44,7 +44,9 @@
 ## Inspecting Results
 
 - Use `bb thread search <query> [--limit <1-50>]` for sidebar search. Use
-  `history`, `read|unread`, and `section` for organization and recall. The
+  `history`, `read|unread`, and `section` for organization and recall.
+  `bb thread update <thread-id> --project <project-id>` moves a thread and its
+  descendants into another project without touching its environment. The
   `bb thread queue` group contains the queued-message operations. Queue updates
   use the listed version and accept repeatable `--file` and `--image` options.
 - Use `bb thread show <thread-id>` for status, parent, environment, pull request
@@ -72,7 +74,7 @@ For review or fix pipelines, get the environment ID from
 - Use `bb thread open <thread-id> --split right|down|left|top|replace` to open
   or focus a thread in the current app split layout. `replace` is the default;
   an already-open thread is focused. Edge splits create panes through the
-  eighth pane; at eight panes, they replace the focused pane.
+  64th pane; at 64 panes, they replace the focused pane.
 - A file path is optional when a thread ID is explicit:
   `bb thread open <thread-id> [path] [--split <placement>]`.
 - Paths can be thread-relative workspace paths, or absolute paths inside the

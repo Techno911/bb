@@ -395,6 +395,10 @@ export const REALTIME_THREAD_CHANGE_REGISTRY = {
     flush: "debounced",
     dirty: [dirtyThreadListQueries, dirtyThreadDetailQueries],
   },
+  "project-changed": {
+    flush: "debounced",
+    dirty: [dirtyThreadListQueries, dirtyThreadDetailQueries],
+  },
   "environment-changed": {
     flush: "immediate",
     dirty: [

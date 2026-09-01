@@ -93,6 +93,7 @@ const THREAD_LIST_AFFECTING_KINDS: ReadonlySet<ThreadChangeKind> =
     "archived-changed",
     "pin-state-changed",
     "parent-changed",
+    "project-changed",
     "environment-changed",
     "read-state-changed",
     "order-changed",

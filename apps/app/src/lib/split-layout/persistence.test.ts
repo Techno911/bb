@@ -4,6 +4,7 @@ import {
   serializeSplitLayout,
   SPLIT_LAYOUT_SCHEMA_VERSION,
 } from "./persistence";
+import { MAX_PANES } from "./ops";
 import type { SplitLayout } from "./types";
 
 function layoutWithPaneCount(count: number): SplitLayout {
@@ -95,11 +96,11 @@ describe("split layout persistence", () => {
     expect(deserializeSplitLayout(serializeSplitLayout(mixed))).toEqual(mixed);
   });
 
-  it("round-trips and restores all eight panes with focus and sizes intact", () => {
-    const eightPanes = layoutWithPaneCount(8);
+  it("round-trips and restores a full-cap layout with focus and sizes intact", () => {
+    const cappedPanes = layoutWithPaneCount(MAX_PANES);
 
-    expect(deserializeSplitLayout(serializeSplitLayout(eightPanes))).toEqual(
-      eightPanes,
+    expect(deserializeSplitLayout(serializeSplitLayout(cappedPanes))).toEqual(
+      cappedPanes,
     );
   });
 
@@ -129,7 +130,9 @@ describe("split layout persistence", () => {
       ),
     ).toBeNull();
     expect(
-      deserializeSplitLayout(serializeSplitLayout(layoutWithPaneCount(9))),
+      deserializeSplitLayout(
+        serializeSplitLayout(layoutWithPaneCount(MAX_PANES + 1)),
+      ),
     ).toBeNull();
   });
 });
