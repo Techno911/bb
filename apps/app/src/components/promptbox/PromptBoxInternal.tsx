@@ -120,6 +120,7 @@ import {
 } from "./editor/prompt-editor-blockquote";
 import { exitHeading } from "./editor/prompt-editor-heading";
 import { applyPromptListNewline } from "./editor/prompt-editor-list";
+import { applyPromptTextListContinuation } from "./editor/prompt-editor-text-list";
 import { applyPromptParagraphNewline } from "./editor/prompt-editor-paragraph";
 import {
   MentionMenu,
@@ -2887,6 +2888,15 @@ export function PromptBoxInternal({
         !event.ctrlKey &&
         (event.shiftKey || !canSubmitWithEnterKey);
       if (isPromptNewlineKey && currentEditor && exitHeading(currentEditor)) {
+        event.preventDefault();
+        return true;
+      }
+
+      if (
+        isPromptNewlineKey &&
+        currentEditor &&
+        applyPromptTextListContinuation(currentEditor)
+      ) {
         event.preventDefault();
         return true;
       }

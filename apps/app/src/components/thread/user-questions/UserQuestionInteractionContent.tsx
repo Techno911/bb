@@ -18,6 +18,7 @@ import { useAutoGrow } from "@/hooks/useAutoGrow";
 import { useResolveThreadPendingInteraction } from "@/hooks/mutations/thread-interaction-mutations";
 import { useStopThread } from "@/hooks/mutations/thread-runtime-mutations";
 import { getMutationErrorMessage } from "@/lib/mutation-errors";
+import { planTextareaListContinuation } from "@/lib/text-list-continuation";
 import { cn } from "@bb/shared-ui/lib/utils";
 import {
   answerStateFor,
@@ -211,15 +212,30 @@ function QuestionInputBlock({
   const handleFreeTextKeyDown = (
     event: KeyboardEvent<HTMLTextAreaElement>,
   ): void => {
-    if (
-      event.nativeEvent.isComposing ||
-      event.key !== "Enter" ||
-      (!event.metaKey && !event.ctrlKey)
-    ) {
+    if (event.nativeEvent.isComposing || event.key !== "Enter") return;
+
+    if (event.metaKey || event.ctrlKey) {
+      event.preventDefault();
+      onShortcutSubmit();
       return;
     }
+
+    // A new line inside a list carries the next marker with it, the same way
+    // the prompt box does.
+    if (event.altKey) return;
+    const field = event.currentTarget;
+    const continuation = planTextareaListContinuation(
+      field.value,
+      field.selectionStart,
+      field.selectionEnd,
+    );
+    if (continuation === null) return;
     event.preventDefault();
-    onShortcutSubmit();
+    onFreeTextChange(continuation.value);
+    requestAnimationFrame(() => {
+      field.setSelectionRange(continuation.caret, continuation.caret);
+      resizeFreeTextArea();
+    });
   };
   return (
     <fieldset disabled={disabled} className="min-w-0">
