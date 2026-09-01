@@ -549,6 +549,7 @@ function toThreadListEntryResponseFromLatestSession(
     environmentWorkspaceDisplayKind:
       args.thread.environmentWorkspaceDisplayKind,
     hasPendingInteraction: args.thread.hasPendingInteraction,
+    model: args.thread.model ?? null,
     runtime: resolveThreadRuntimeStateFromLatestSession({
       environmentHostId: args.thread.environmentHostId,
       hostConnected: args.hostConnected,

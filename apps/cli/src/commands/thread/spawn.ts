@@ -45,6 +45,7 @@ interface ThreadSpawnCommandOptions {
   serviceTier?: string;
   permissionMode?: string;
   plan?: boolean;
+  parent?: boolean;
   parentSelf?: boolean;
   machine?: string;
   host?: string;
@@ -78,7 +79,8 @@ function resolveSpawnEnvironmentValue(flagValue?: string): string | undefined {
   });
 }
 
-function resolveSpawnParentThreadId(args: {
+export function resolveSpawnParentThreadId(args: {
+  noParent?: boolean;
   parentSelf?: boolean;
   parentThread?: string;
 }): string | undefined {
@@ -89,6 +91,9 @@ function resolveSpawnParentThreadId(args: {
   if (explicitParentThreadId && args.parentSelf) {
     throw new Error("Cannot combine --parent-thread with --parent-self.");
   }
+  if (args.noParent && (explicitParentThreadId || args.parentSelf)) {
+    throw new Error("Cannot combine --no-parent with a parent flag.");
+  }
   if (args.parentSelf) {
     const selfThreadId = resolveContextThreadId();
     if (!selfThreadId) {
@@ -96,7 +101,17 @@ function resolveSpawnParentThreadId(args: {
     }
     return selfThreadId;
   }
-  return explicitParentThreadId;
+  if (explicitParentThreadId) {
+    return explicitParentThreadId;
+  }
+  // A thread spawned from inside another thread continues that thread's work
+  // (a second opinion, a review, a handoff), so it is parented by default and
+  // lands under its parent in the sidebar instead of beside it. --no-parent
+  // opts out for a genuinely unrelated thread.
+  if (args.noParent) {
+    return undefined;
+  }
+  return resolveContextThreadId();
 }
 
 export function buildSpawnEnvironment(args: {
@@ -188,7 +203,14 @@ export function registerSpawnCommand(
     )
     .option("--host <id-or-name>", "Alias for --machine")
     .option("--parent-thread <id>", "Parent thread ID for worker thread links")
-    .option("--parent-self", "Parent the new thread to BB_THREAD_ID")
+    .option(
+      "--parent-self",
+      "Parent the new thread to BB_THREAD_ID (already the default inside a thread)",
+    )
+    .option(
+      "--no-parent",
+      "Spawn an unrelated thread: do not parent it to BB_THREAD_ID",
+    )
     .option(
       "--provider <id>",
       "Provider ID for the thread. Omit to use the project's remembered provider choice",
@@ -279,6 +301,8 @@ export function registerSpawnCommand(
             ? undefined
             : threadVisibilitySchema.parse(opts.visibility);
         const parentThreadId = resolveSpawnParentThreadId({
+          // commander stores a negatable "--no-parent" flag as `parent: false`.
+          noParent: opts.parent === false,
           parentSelf: opts.parentSelf,
           parentThread: opts.parentThread,
         });

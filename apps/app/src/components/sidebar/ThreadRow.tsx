@@ -52,6 +52,7 @@ import {
   type ThreadListIndicatorState,
 } from "@bb/client-core";
 import { getThreadDisplayTitle } from "@/lib/thread-title";
+import { threadModelRowLabel } from "@/lib/model-label";
 import { getThreadRoutePath } from "@/lib/route-paths";
 import { cn } from "@bb/shared-ui/lib/utils";
 import { LIST_HOVER_TRANSITION } from "@bb/shared-ui/motion";
@@ -715,6 +716,20 @@ function ThreadRowComponent({
             <ThreadTitleMentions title={threadTitle} />
           </span>
         )}
+        {thread.parentThreadId !== null ? (
+          // A child thread usually exists to run the same work on another
+          // model (a review, a second opinion), so the row says which one.
+          <span
+            data-sidebar-thread-model=""
+            title={`${thread.providerId}${thread.model ? ` · ${thread.model}` : ""}`}
+            className="relative top-px shrink-0 rounded-sm border border-border/60 px-1 font-mono text-[10px] uppercase leading-4 tracking-wide text-muted-foreground"
+          >
+            {threadModelRowLabel({
+              model: thread.model,
+              providerId: thread.providerId,
+            })}
+          </span>
+        ) : null}
         {crossProjectLabel !== null ? (
           <Tooltip>
             <TooltipTrigger asChild>

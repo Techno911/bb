@@ -252,6 +252,29 @@ afterEach(() => {
 });
 
 describe("ThreadRow", () => {
+  it("labels a child thread with the model it runs on", () => {
+    renderThreadRow({
+      thread: createThread({
+        parentThreadId: "thr_parent",
+        providerId: "claude-code",
+        model: "claude-fable-5-1",
+      } as Partial<ThreadListEntry>),
+    });
+    expect(screen.getByText("Fable 5.1")).toBeTruthy();
+  });
+
+  it("falls back to the provider name when a child thread has no pinned model", () => {
+    renderThreadRow({
+      thread: createThread({ parentThreadId: "thr_parent", providerId: "codex" }),
+    });
+    expect(screen.getByText("Codex")).toBeTruthy();
+  });
+
+  it("does not label a root thread", () => {
+    renderThreadRow({ thread: createThread({ providerId: "codex" }) });
+    expect(screen.queryByText("Codex")).toBeNull();
+  });
+
   const splitWorkingCases: Array<{
     label: string;
     pluginStatus?: PluginComposerThreadRowStatus;

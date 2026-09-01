@@ -1,9 +1,9 @@
-import type { KeyboardEvent, MouseEvent } from "react";
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { PromptMentionResource, PromptTextMention } from "@bb/domain";
 import { RouteAnchor } from "@/components/ui/app-route-anchor.js";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import {
-  getProjectComposeRoutePath,
   getThreadRoutePath,
 } from "@/lib/route-paths";
 import { cn } from "@bb/shared-ui/lib/utils";
@@ -12,7 +12,10 @@ import {
   promptMentionTooltipLabel,
 } from "@/components/promptbox/mentions/prompt-mention-display";
 import { PromptMentionIcon } from "@/components/promptbox/mentions/PromptMentionIcon";
-import { promptMentionClipboardDataAttributes } from "@/components/promptbox/mentions/prompt-mention-clipboard";
+import {
+  promptMentionClipboardDataAttributes,
+  type PromptMentionClipboardDataAttributes,
+} from "@/components/promptbox/mentions/prompt-mention-clipboard";
 import type { PromptMentionLinkResolver } from "@/components/promptbox/editor/prompt-mention-link";
 
 interface PromptMentionPillProps {
@@ -200,14 +203,14 @@ export function PromptMentionPill({
 
   if (resource.kind === "project") {
     return (
-      <Link
+      <ProjectMentionLink
         className={mentionPillClassName(true)}
-        {...clipboardAttributes}
-        to={getProjectComposeRoutePath(resource.projectId)}
+        clipboardAttributes={clipboardAttributes}
+        projectId={resource.projectId}
         title={title}
       >
         {labelNode}
-      </Link>
+      </ProjectMentionLink>
     );
   }
 
@@ -252,4 +255,35 @@ export function resolveThreadMentionResource(
     }
   }
   return { kind: "thread", threadId, label: threadId };
+}
+
+/** A project mention opens that project's composer beside the current pane. */
+function ProjectMentionLink({
+  children,
+  className,
+  clipboardAttributes,
+  projectId,
+  title,
+}: {
+  children: ReactNode;
+  className: string;
+  clipboardAttributes: PromptMentionClipboardDataAttributes;
+  projectId: string;
+  title: string | undefined;
+}) {
+  const openNewThreadPane = useOpenNewThreadPane();
+  return (
+    <button
+      type="button"
+      className={className}
+      {...clipboardAttributes}
+      title={title}
+      onClick={(event) => {
+        event.preventDefault();
+        openNewThreadPane({ projectId });
+      }}
+    >
+      {children}
+    </button>
+  );
 }

@@ -12,6 +12,13 @@ const SPLIT_ROUTING_FILES = [
   "views/thread-detail/splitThreadNavigation.ts",
 ];
 
+// Files that may mention a compose route without creating a thread: the route
+// matcher and the breadcrumb that names a project.
+const COMPOSE_ROUTE_OWNERS = [
+  "views/SplitWorkspaceRoute.tsx",
+  "components/layout/AppLayout.tsx",
+];
+
 const NON_CREATING_NAVIGATION_FILES = [
   "components/layout/AppLayout.tsx",
   "components/project/ProjectActionsProvider.tsx",
@@ -39,7 +46,9 @@ describe("new thread entry points", () => {
   it("routes every thread creation through the pane-opening hook", () => {
     const offenders = listSourceFiles(srcRoot)
       .filter((filePath) =>
-        readFileSync(filePath, "utf8").includes("getRootComposeRoutePath"),
+        /get(?:Root|Project|LegacyProject)ComposeRoutePath/.test(
+          readFileSync(filePath, "utf8"),
+        ),
       )
       .map((filePath) => relative(srcRoot, filePath))
       .filter(
@@ -47,6 +56,7 @@ describe("new thread entry points", () => {
           filePath !== NEW_THREAD_PANE_HOOK &&
           filePath !== "lib/route-paths.ts" &&
           !SPLIT_ROUTING_FILES.includes(filePath) &&
+          !COMPOSE_ROUTE_OWNERS.includes(filePath) &&
           !NON_CREATING_NAVIGATION_FILES.includes(filePath),
       );
 

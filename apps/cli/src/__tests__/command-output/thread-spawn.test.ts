@@ -505,7 +505,7 @@ describe("bb thread spawn command output", () => {
     });
   });
 
-  it("bb thread spawn does not default parent thread id from BB_THREAD_ID", async () => {
+  it("bb thread spawn parents the new thread to BB_THREAD_ID by default", async () => {
     vi.stubEnv("BB_PROJECT_ID", "proj-1");
     vi.stubEnv("BB_THREAD_ID", "thread-context-parent");
     const thread: domain.Thread = fixtures.makeThread({
@@ -542,8 +542,52 @@ describe("bb thread spawn command output", () => {
         startedOnBehalfOf: null,
         originKind: null,
         projectId: "proj-1",
+        parentThreadId: "thread-context-parent",
         providerId: "codex",
         model: "gpt-5",
+        input: [{ type: "text", text: "hello", mentions: [] }],
+        environment: {
+          type: "host",
+          hostId: "host-test-001",
+          workspace: { type: "unmanaged", path: null },
+        },
+      },
+    });
+  });
+
+  it("bb thread spawn --no-parent keeps the thread unrelated to BB_THREAD_ID", async () => {
+    vi.stubEnv("BB_PROJECT_ID", "proj-1");
+    vi.stubEnv("BB_THREAD_ID", "thread-context-parent");
+    const thread: domain.Thread = fixtures.makeThread({
+      id: "thread-2",
+      projectId: "proj-1",
+      providerId: "codex",
+      status: "starting",
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    const post = vi.fn(async () => thread);
+    stubServerApi({ "v1.threads.$post": post });
+
+    await runCommand(
+      [
+        "thread",
+        "spawn",
+        "--project",
+        "proj-1",
+        "--prompt",
+        "hello",
+        "--no-parent",
+      ],
+      register,
+    );
+
+    expect(post).toHaveBeenCalledWith({
+      json: {
+        origin: "cli",
+        startedOnBehalfOf: null,
+        originKind: null,
+        projectId: "proj-1",
         input: [{ type: "text", text: "hello", mentions: [] }],
         environment: {
           type: "host",

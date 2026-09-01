@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import {
   PERSONAL_PROJECT_ID,
   type Host,
@@ -69,7 +70,6 @@ import {
   type PromptDraftState,
 } from "@bb/client-core";
 import {
-  getProjectComposeRoutePath,
   getThreadRoutePath,
   isProjectlessProjectId,
 } from "@/lib/route-paths";
@@ -371,6 +371,7 @@ export function NewThreadComposer({
   children,
 }: NewThreadComposerProps) {
   const navigate = useNavigate();
+  const openNewThreadPane = useOpenNewThreadPane();
   const promptBoxRef = useRef<PromptBoxHandle>(null);
 
   const sidebarNavigationQuery = useSidebarNavigation();
@@ -938,7 +939,7 @@ export function NewThreadComposer({
           );
       }
       if (resource.kind === "project") {
-        return () => navigate(getProjectComposeRoutePath(resource.projectId));
+        return () => openNewThreadPane({ projectId: resource.projectId });
       }
       return null;
     },

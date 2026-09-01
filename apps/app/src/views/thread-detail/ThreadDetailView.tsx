@@ -9,6 +9,7 @@ import {
 import { nanoid } from "nanoid";
 import { useSystemProviderInfo } from "@/hooks/queries/system-queries";
 import { useNavigate } from "react-router-dom";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import { useAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import {
@@ -128,7 +129,6 @@ import {
 } from "@bb/client-core";
 import { createLocalStorageEnumStorage } from "@/lib/browser-storage";
 import {
-  getProjectComposeRoutePath,
   getThreadRoutePath,
   isRoutePath,
   type ThreadRoutePathArgs,
@@ -515,6 +515,7 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
   const { isFocused, navigateInPane, onRequestClose, isBoundedPane } =
     usePaneContext();
   const navigate = useNavigate();
+  const openNewThreadPane = useOpenNewThreadPane();
   useFixedPanelTabsStorageMaintenance();
   const systemConfigQuery = useSystemConfig();
   const threadDetailBootstrapQuery = useThreadDetailBootstrap(threadId);
@@ -1520,7 +1521,7 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
           });
       }
       if (resource.kind === "project") {
-        return () => navigate(getProjectComposeRoutePath(resource.projectId));
+        return () => openNewThreadPane({ projectId: resource.projectId });
       }
       if (resource.kind !== "path" || resource.entryKind !== "file") {
         return null;

@@ -1,5 +1,6 @@
 import { useCallback, useContext, useMemo, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import type {
   ThreadChatMessageAction,
   ThreadChatProps,
@@ -32,7 +33,6 @@ import {
 import { formatWorkspaceCheckoutDisplay } from "@/lib/workspace-checkout-display";
 import { BbHttpError } from "@/lib/sdk";
 import {
-  getProjectComposeRoutePath,
   getThreadRoutePath,
 } from "@/lib/route-paths";
 
@@ -107,6 +107,7 @@ function PluginThreadChatBody({
     [thread?.providerId, threadProviderPluginId],
   );
   const navigate = useNavigate();
+  const openNewThreadPane = useOpenNewThreadPane();
   const { isLocalDaemonHost } = useHostDaemon();
   const environmentQuery = useEnvironment(thread?.environmentId ?? null);
   const environment = environmentQuery.data ?? null;
@@ -163,7 +164,7 @@ function PluginThreadChatBody({
           );
       }
       if (resource.kind === "project") {
-        return () => navigate(getProjectComposeRoutePath(resource.projectId));
+        return () => openNewThreadPane({ projectId: resource.projectId });
       }
       if (
         resource.kind === "path" &&

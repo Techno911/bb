@@ -17,7 +17,8 @@ Spawning:
     --title <title>                Thread title
     --project <id>                 Project (required)
     --parent-thread <id>           Parent thread (may be in another project)
-    --parent-self                  Parent to the current thread (BB_THREAD_ID)
+    --parent-self                  Parent to the current thread (BB_THREAD_ID); this is the default inside a thread
+    --no-parent                    Spawn an unrelated thread instead of a child of the current one
     --provider <id>                Provider override
     --model <model>                Model override
     --reasoning-level <level>      Reasoning level: low, medium, high, xhigh, max (provider-dependent)
@@ -45,7 +46,7 @@ Spawning:
   the same workspace sandbox with provider-native automatic review. full is the
   explicit sandbox and approval bypass. Plan mode is separate from permissions.
   Subagents inherit the parent's permission mode by default, and the parent's mode is a hard ceiling: a child's requested mode can lower it but never exceed it, so a sandboxed parent cannot spawn a full-access child.
-  Parenting is opt-in. Inside a thread, pass --parent-self to parent the new thread to the current thread.
+  Inside a thread, a spawned thread is parented to the current thread by default: a second opinion, a review or a continuation lands under the thread it belongs to instead of beside it. Pass --no-parent only for a genuinely unrelated thread, or --parent-thread <id> to attach it elsewhere.
   Hidden threads are for plugin/background workers. They remain addressable by
   ID while staying out of sidebar organization and unread/pending favicon
   attention. Thread lists exclude them unless

@@ -409,6 +409,37 @@ describe("thread runtime display", () => {
     ).toHaveLength(32_767);
   });
 
+  it("carries the pinned model into list entries so the sidebar can name it", () => {
+    const { db, hostId, hub } = setup();
+    const pinned = createThreadWithEnvironment({ db, hostId });
+    const unpinned = createThreadWithEnvironment({ db, hostId });
+
+    const entries = toThreadListEntryResponses(
+      { db, hub, providerRegistry },
+      {
+        now: 1_000,
+        threads: [
+          {
+            ...createThreadListEntry({
+              environmentHostId: hostId,
+              thread: pinned.thread,
+            }),
+            model: "claude-fable-5-1",
+          },
+          createThreadListEntry({
+            environmentHostId: hostId,
+            thread: unpinned.thread,
+          }),
+        ],
+      },
+    );
+
+    expect(entries.map((entry) => [entry.id, entry.model])).toEqual([
+      [pinned.thread.id, "claude-fable-5-1"],
+      [unpinned.thread.id, null],
+    ]);
+  });
+
   it("marks list entries active when the prompt banner would show plan or goal state", () => {
     const { db, hostId, hub } = setup();
     const activePlan = createThreadWithEnvironment({ db, hostId });

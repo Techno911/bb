@@ -1669,7 +1669,9 @@ describe("ThreadDetailPromptArea", () => {
       screen.getByRole("button", { name: "Handoff to new thread" }),
     );
 
-    expect(mocks.navigate).toHaveBeenCalledWith("/projects/proj_source", {
+    // The composer opens through the shared pane hook: root compose route,
+    // project carried in state and store rather than in the path.
+    expect(mocks.navigate).toHaveBeenCalledWith("/", {
       state: {
         focusPrompt: true,
         reuseEnvironmentId: "env_1",
