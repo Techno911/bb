@@ -8,7 +8,6 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate } from "react-router-dom";
 import type { IconName } from "@bb/shared-ui/icon";
 import type { PromptMentionLinkResolver } from "@/components/promptbox/editor/prompt-mention-link";
 import {
@@ -96,7 +95,7 @@ import { useThreadDefaultExecutionOptions } from "@/hooks/queries/thread-default
 import { getMutationErrorMessage } from "@/lib/mutation-errors";
 import { promptHistoryEntriesToDrafts } from "@/lib/prompt-history";
 import { usePromptHistoryEnabled } from "@/hooks/usePromptHistoryEnabled";
-import { getProjectComposeRoutePath } from "@/lib/route-paths";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import { getThreadDisplayTitle } from "@/lib/thread-title";
 import { buildThreadHandoffLocationState } from "@bb/client-core";
 import { appToast } from "@/components/ui/app-toast";
@@ -382,7 +381,7 @@ export function ThreadDetailPromptArea({
   composerFocusRequestNonce,
   thread,
 }: ThreadDetailPromptAreaProps) {
-  const navigate = useNavigate();
+  const openNewThreadPane = useOpenNewThreadPane();
   const defaultExecutionOptionsQuery = useThreadDefaultExecutionOptions(
     thread.id,
     {
@@ -1001,7 +1000,10 @@ export function ThreadDetailPromptArea({
     titleFallback: thread.titleFallback,
   });
   const handleHandoffToNewThread = useCallback(() => {
-    navigate(getProjectComposeRoutePath(thread.projectId), {
+    // The composer opens beside this pane, and the seed attaches the new
+    // thread to this one so it lands under it in the sidebar.
+    openNewThreadPane({
+      projectId: thread.projectId,
       state: buildThreadHandoffLocationState({
         environmentId: thread.environmentId,
         projectId: thread.projectId,
@@ -1010,7 +1012,7 @@ export function ThreadDetailPromptArea({
       }),
     });
   }, [
-    navigate,
+    openNewThreadPane,
     sourceThreadDisplayTitle,
     thread.environmentId,
     thread.id,

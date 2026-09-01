@@ -14,7 +14,7 @@ interface PromptMentionClipboardPayload {
   serializedText: string;
 }
 
-interface PromptMentionClipboardDataAttributes {
+export interface PromptMentionClipboardDataAttributes {
   "data-prompt-mention": "true";
   "data-prompt-mention-resource": string;
   "data-prompt-mention-serialized-text": string;

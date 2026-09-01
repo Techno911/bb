@@ -11,7 +11,7 @@ const NEW_THREAD_PANE_CONTENT = { kind: "new-thread" } as const;
 export interface OpenNewThreadPaneArgs {
   projectId?: string;
   replaceHistoryEntry?: boolean;
-  state?: Record<string, unknown>;
+  state?: object;
 }
 
 export type OpenNewThreadPane = (args?: OpenNewThreadPaneArgs) => void;

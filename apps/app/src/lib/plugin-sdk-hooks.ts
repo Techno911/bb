@@ -52,7 +52,6 @@ import {
 import {
   AUTOMATIONS_PLUGIN_ID,
   getPluginPanelRoutePath,
-  getProjectComposeRoutePath,
   getThreadRoutePath,
   AUTOMATION_EDIT_ROUTE_PATH,
 } from "@/lib/route-paths";
@@ -307,9 +306,9 @@ export function useBbNavigate(): BbNavigate {
   );
   const toProject = useCallback(
     (projectId: string) => {
-      void navigate(getProjectComposeRoutePath(projectId));
+      openNewThreadPane({ projectId });
     },
-    [navigate],
+    [openNewThreadPane],
   );
   const toPluginPanel = useCallback(
     (path: string, options?: { subPath?: string; replace?: boolean }) => {

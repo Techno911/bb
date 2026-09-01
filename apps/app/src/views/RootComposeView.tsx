@@ -90,6 +90,7 @@ import {
 import {
   buildThreadHandoffPromptDraft,
   readThreadHandoffCreateSeedFromLocationState,
+  type ThreadHandoffCreateSeed,
 } from "@bb/client-core";
 import { useNavigateToThreadAfterCreatePreference } from "@/lib/root-compose-create-preference";
 import {
@@ -520,10 +521,17 @@ export function RootComposeView() {
   const [forkSeed, setForkSeed] = useState<ForkThreadCreateSeed | null>(() =>
     readForkThreadCreateSeedFromLocationState(location.state),
   );
+  // A handoff keeps the new thread attached to the one it continues: the
+  // thread lands under its source in the sidebar instead of beside it.
+  const [handoffSeed, setHandoffSeed] =
+    useState<ThreadHandoffCreateSeed | null>(() =>
+      readThreadHandoffCreateSeedFromLocationState(location.state),
+    );
 
   const handleProjectChange = useCallback(
     (projectId: string) => {
       setForkSeed(null);
+      setHandoffSeed(null);
       setRootComposeProjectId(projectId);
     },
     [setRootComposeProjectId],
@@ -541,6 +549,10 @@ export function RootComposeView() {
               ...requestFields,
               ...(rootComposeSectionId
                 ? { sectionId: rootComposeSectionId }
+                : {}),
+              ...(handoffSeed !== null &&
+              handoffSeed.projectId === request.projectId
+                ? { parentThreadId: handoffSeed.sourceThreadId }
                 : {}),
             }
           : buildForkThreadRequest({
@@ -560,6 +572,7 @@ export function RootComposeView() {
       );
       setLastCreatedThreadId(thread.id);
       setForkSeed(null);
+      setHandoffSeed(null);
       setRootComposeSectionId(null);
       if (shouldNavigateToCreatedThread) {
         navigate(
@@ -573,6 +586,7 @@ export function RootComposeView() {
     [
       createThread,
       forkSeed,
+      handoffSeed,
       queryClient,
       navigate,
       navigateToThreadAfterCreate,
@@ -615,6 +629,7 @@ export function RootComposeView() {
           lastCreatedThreadId={lastCreatedThreadId}
           rootComposeProjectId={rootComposeProjectId}
           setForkSeed={setForkSeed}
+          setHandoffSeed={setHandoffSeed}
           setRootComposeProjectId={setRootComposeProjectId}
           setRootComposeSectionId={setRootComposeSectionId}
           setStartedComposing={setStartedComposing}
@@ -631,6 +646,7 @@ interface RootComposeSurfaceProps {
   lastCreatedThreadId: string | null;
   rootComposeProjectId: string;
   setForkSeed: (seed: ForkThreadCreateSeed | null) => void;
+  setHandoffSeed: (seed: ThreadHandoffCreateSeed | null) => void;
   setRootComposeProjectId: (projectId: string) => void;
   setRootComposeSectionId: (sectionId: string | null) => void;
   setStartedComposing: (started: boolean) => void;
@@ -643,6 +659,7 @@ function RootComposeSurface({
   lastCreatedThreadId,
   rootComposeProjectId,
   setForkSeed,
+  setHandoffSeed,
   setRootComposeProjectId,
   setRootComposeSectionId,
   setStartedComposing,
@@ -771,6 +788,7 @@ function RootComposeSurface({
       setStartedComposing(true);
       setRootComposeProjectId(nextHandoffSeed.projectId);
       setForkSeed(null);
+      setHandoffSeed(nextHandoffSeed);
       if (nextHandoffSeed.environmentId !== null) {
         seedEnvironmentSelectionValue(
           encodeReuseValue(nextHandoffSeed.environmentId),
@@ -788,6 +806,7 @@ function RootComposeSurface({
     navigate,
     seedEnvironmentSelectionValue,
     setForkSeed,
+    setHandoffSeed,
     setPermissionMode,
     setPromptDraft,
     setProviderModelReasoning,
