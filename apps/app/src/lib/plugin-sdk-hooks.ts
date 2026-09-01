@@ -53,7 +53,6 @@ import {
   AUTOMATIONS_PLUGIN_ID,
   getPluginPanelRoutePath,
   getProjectComposeRoutePath,
-  getRootComposeRoutePath,
   getThreadRoutePath,
   AUTOMATION_EDIT_ROUTE_PATH,
 } from "@/lib/route-paths";
@@ -62,6 +61,7 @@ import { useServerConnectionState } from "@/hooks/useServerConnectionState";
 import { wsManager } from "@/lib/ws";
 import { pluginSdkSettingsQueryKey } from "@/hooks/queries/query-keys";
 import { useAppNavigationHost } from "@/lib/app-navigation-host";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import { normalizeExperimentalFileOpenOptions } from "@/lib/live-file-navigation";
 import { deprecatedAlias } from "@/lib/plugin-sdk-deprecated-aliases";
 import {
@@ -290,6 +290,7 @@ export function useBbNavigate(): BbNavigate {
   const location = useLocation();
   const openThreadPanelHandler = usePluginThreadPanelOpenHandler();
   const navigate = useNavigate();
+  const openNewThreadPane = useOpenNewThreadPane();
   const appNavigation = useAppNavigationHost();
   const toThread = useCallback(
     (threadId: string) => {
@@ -326,8 +327,8 @@ export function useBbNavigate(): BbNavigate {
       const replacesAutomationEditRoute =
         pluginId === AUTOMATIONS_PLUGIN_ID &&
         isAutomationEditRoutePath(location.pathname);
-      void navigate(getRootComposeRoutePath(), {
-        ...(replacesAutomationEditRoute ? { replace: true } : {}),
+      openNewThreadPane({
+        ...(replacesAutomationEditRoute ? { replaceHistoryEntry: true } : {}),
         state: {
           focusPrompt: options?.focusPrompt ?? false,
           initialPrompt: options?.initialPrompt ?? "",
@@ -337,7 +338,7 @@ export function useBbNavigate(): BbNavigate {
         },
       });
     },
-    [location.pathname, navigate, pluginId],
+    [location.pathname, openNewThreadPane, pluginId],
   );
   const openThreadPanel = useCallback<BbNavigate["openThreadPanel"]>(
     (options) => openThreadPanelHandler?.({ ...options, pluginId }) ?? false,

@@ -34,8 +34,8 @@ import { usePluginList } from "@/hooks/queries/plugin-settings-queries";
 import {
   SETTINGS_PLUGINS_ROUTE_PATH,
   getPluginDetailRoutePath,
-  getRootComposeRoutePath,
 } from "@/lib/route-paths";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 
 export function PluginsOverview({
   onOpenPlugin,
@@ -43,6 +43,7 @@ export function PluginsOverview({
   onOpenPlugin?: (pluginId: string, trigger: HTMLButtonElement) => void;
 } = {}) {
   const navigate = useNavigate();
+  const openNewThreadPane = useOpenNewThreadPane();
   const [searchParams] = useSearchParams();
   const listQuery = usePluginList({ enabled: true });
   const plugins = useMemo(
@@ -138,9 +139,8 @@ export function PluginsOverview({
   });
 
   const startCreatePlugin = (prompt?: string) => {
-    navigate(getRootComposeRoutePath(), {
+    openNewThreadPane({
       state: {
-        focusPrompt: true,
         initialPrompt: prompt ?? CREATE_PLUGIN_PROMPT,
         replaceInitialPrompt: prompt !== undefined,
       },

@@ -62,6 +62,11 @@ vi.mock("./root-compose-selection", () => ({
   useSetRootComposeProjectId: () => actions.setRootComposeProjectId,
 }));
 
+vi.mock("react-router-dom", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-router-dom")>();
+  return { ...actual, useNavigate: () => actions.navigate };
+});
+
 function payload(threads: ThreadListEntry[]) {
   return {
     sections: [],
@@ -117,7 +122,7 @@ describe("useSidebarThreads", () => {
 });
 
 describe("useSidebarThreadActions", () => {
-  it("opens a project composer without a legacy route transition", () => {
+  it("opens a project composer beside the focused pane", () => {
     state.data = payload([]);
     const { result } = renderHook(() => useSidebarThreadActions());
 

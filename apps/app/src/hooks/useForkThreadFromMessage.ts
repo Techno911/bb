@@ -7,12 +7,10 @@ import {
   isThreadForkable,
   type ForkThreadCreateSeed,
 } from "@bb/client-core";
-import { getRootComposeRoutePath } from "@/lib/route-paths";
 import { getThreadDisplayTitle } from "@/lib/thread-title";
-import { useSetRootComposeProjectId } from "@/lib/root-compose-selection";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import { threadDefaultExecutionOptionsQueryKey } from "@/hooks/queries/query-keys";
 import { findCachedProviderInfo } from "@/hooks/queries/system-queries";
-import { useRouteNavigate } from "@/components/ui/app-route-anchor";
 
 interface UseForkThreadFromMessageArgs {
   sourceThread: Thread | null;
@@ -27,9 +25,8 @@ export function useForkThreadFromMessage({
 }: UseForkThreadFromMessageArgs): (
   target: ForkThreadFromMessageTarget,
 ) => Promise<void> {
-  const navigate = useRouteNavigate();
   const queryClient = useQueryClient();
-  const setRootComposeProjectId = useSetRootComposeProjectId();
+  const openNewThreadPane = useOpenNewThreadPane();
   const forkInFlightRef = useRef(false);
   const sourceThreadRef = useRef(sourceThread);
   useLayoutEffect(() => {
@@ -77,10 +74,9 @@ export function useForkThreadFromMessage({
           sourceThreadId: source.id,
           sourceThreadTitle: getThreadDisplayTitle(source),
         };
-        setRootComposeProjectId(source.projectId);
-        navigate(getRootComposeRoutePath(), {
+        openNewThreadPane({
+          projectId: source.projectId,
           state: {
-            focusPrompt: true,
             reuseEnvironmentId: source.environmentId,
             [FORK_THREAD_CREATE_SEED_LOCATION_STATE_KEY]: seed,
           },
@@ -89,6 +85,6 @@ export function useForkThreadFromMessage({
         forkInFlightRef.current = false;
       }
     },
-    [navigate, queryClient, setRootComposeProjectId],
+    [openNewThreadPane, queryClient],
   );
 }

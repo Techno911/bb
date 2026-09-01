@@ -1,10 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import {
-  Navigate,
-  useNavigate,
-  useLocation,
-  matchPath,
-} from "react-router-dom";
+import { Navigate, useLocation, matchPath } from "react-router-dom";
 import "@bb/shared-ui/icon-extended";
 import {
   builtInThemes,
@@ -81,9 +76,9 @@ import { useRewriteLocalhostLinksPreference } from "@/lib/localhost-link-rewrite
 import { useRichTextEditingPreference } from "@/lib/rich-text-editing-preference";
 import {
   SETTINGS_ROUTE_PATH,
-  getRootComposeRoutePath,
 } from "@/lib/route-paths";
 import { useNavigateToThreadAfterCreatePreference } from "@/lib/root-compose-create-preference";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import { cn } from "@bb/shared-ui/lib/utils";
 import {
   resolvePreferredWorkspaceOpenTarget,
@@ -1041,7 +1036,7 @@ export function ExperimentsSettingsSection({
 }
 
 export function SettingsView() {
-  const navigate = useNavigate();
+  const openNewThreadPane = useOpenNewThreadPane();
   const themePreference = useThemePreference();
   const systemConfigQuery = useSystemConfig();
   const { hasDaemon } = useHostDaemon();
@@ -1124,11 +1119,8 @@ export function SettingsView() {
           })
         }
         onCreatePalette={() =>
-          navigate(getRootComposeRoutePath(), {
-            state: {
-              focusPrompt: true,
-              initialPrompt: CREATE_CUSTOM_PALETTE_PROMPT,
-            },
+          openNewThreadPane({
+            state: { initialPrompt: CREATE_CUSTOM_PALETTE_PROMPT },
           })
         }
         onFaviconColorChange={(faviconColor) =>
