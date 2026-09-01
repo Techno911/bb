@@ -40,6 +40,22 @@ function withOneMillionContext(model: string): string {
 
 const CLAUDE_CODE_SELECTED_ONLY_CATALOG: readonly ClaudeCodeCatalogEntry[] = [
   {
+    id: "claude-mythos-5-1",
+    model: "claude-mythos-5-1",
+    displayName: "Mythos 5.1",
+    description: "Mythos 5.1 with 1M context for demanding reasoning",
+    supportedReasoningEfforts: CLAUDE_XHIGH_CAPABLE_REASONING_EFFORTS,
+    defaultReasoningEffort: "high",
+  },
+  {
+    id: "claude-fable-5",
+    model: "claude-fable-5",
+    displayName: "Fable 5 (Legacy)",
+    description: "Legacy Fable 5 model retained for existing selections",
+    supportedReasoningEfforts: CLAUDE_XHIGH_CAPABLE_REASONING_EFFORTS,
+    defaultReasoningEffort: "high",
+  },
+  {
     id: withOneMillionContext(CLAUDE_SONNET_4_6_MODEL),
     model: withOneMillionContext(CLAUDE_SONNET_4_6_MODEL),
     displayName: "Sonnet 4.6 (1M)",
@@ -102,7 +118,7 @@ const CLAUDE_CODE_SELECTED_ONLY_CATALOG: readonly ClaudeCodeCatalogEntry[] = [
     model: "best",
     displayName: "Best Alias",
     description:
-      "Moving best alias retained for existing selections; resolves to Fable 5 where available",
+      "Moving best alias retained for existing selections; resolves to the current Fable model where available",
     supportedReasoningEfforts: CLAUDE_XHIGH_CAPABLE_REASONING_EFFORTS,
     defaultReasoningEffort: "high",
   },
@@ -111,7 +127,7 @@ const CLAUDE_CODE_SELECTED_ONLY_CATALOG: readonly ClaudeCodeCatalogEntry[] = [
     model: "fable",
     displayName: "Fable Alias",
     description:
-      "Moving Fable alias retained for existing selections; resolves to Claude Fable 5",
+      "Moving Fable alias retained for existing selections; resolves to the current Claude Fable model",
     supportedReasoningEfforts: CLAUDE_XHIGH_CAPABLE_REASONING_EFFORTS,
     defaultReasoningEffort: "high",
   },
