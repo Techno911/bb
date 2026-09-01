@@ -28,7 +28,7 @@ function twoPaneLayout(): SplitLayout {
   );
 }
 
-function eightPaneLayout(): SplitLayout {
+function cappedPaneLayout(): SplitLayout {
   let layout = twoPaneLayout();
   for (let index = 3; index <= MAX_PANES; index += 1) {
     layout = applyThreadOpenToLayout(
@@ -107,34 +107,36 @@ describe("applyThreadOpenToLayout", () => {
     expect(after.focusedPaneId).toBe("pane-1");
   });
 
-  it("creates panes five through eight, then replaces the focused pane for a ninth open", () => {
-    const eight = eightPaneLayout();
-    const focusedPaneId = eight.focusedPaneId;
+  it("creates panes up to the cap, then replaces the focused pane for one more open", () => {
+    const capped = cappedPaneLayout();
+    const focusedPaneId = capped.focusedPaneId;
 
-    expect(listPanes(eight.root)).toHaveLength(MAX_PANES);
-    expect(eight.root).toMatchObject({
+    expect(listPanes(capped.root)).toHaveLength(MAX_PANES);
+    expect(capped.root).toMatchObject({
       type: "split",
       dir: "row",
       sizes: Array.from({ length: MAX_PANES }, () => 1 / MAX_PANES),
     });
     for (let index = 5; index <= MAX_PANES; index += 1) {
       expect(
-        findPaneByThread(eight.root, "p1", `thread-${index}`),
+        findPaneByThread(capped.root, "p1", `thread-${index}`),
       ).not.toBeNull();
     }
 
     const after = applyThreadOpenToLayout(
-      eight,
-      { projectId: "p2", threadId: "thread-9" },
+      capped,
+      { projectId: "p2", threadId: "extra-thread" },
       "left",
     );
 
     expect(listPanes(after.root)).toHaveLength(MAX_PANES);
     expect(after.focusedPaneId).toBe(focusedPaneId);
-    expect(findPaneByThread(after.root, "p2", "thread-9")?.paneId).toBe(
+    expect(findPaneByThread(after.root, "p2", "extra-thread")?.paneId).toBe(
       focusedPaneId,
     );
-    expect(findPaneByThread(after.root, "p1", "thread-8")).toBeNull();
+    expect(
+      findPaneByThread(after.root, "p1", `thread-${MAX_PANES}`),
+    ).toBeNull();
   });
 });
 

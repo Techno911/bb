@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom, useStore } from "jotai";
 import type {
   ProjectResponse,
   ThreadSectionResponse,
@@ -43,6 +43,10 @@ import { useDialogState } from "@/hooks/useDialogState";
 import { usePromptDraftInputThreadIds } from "@/hooks/usePromptDraftStorage";
 import { getCollapsedChildActivity } from "@bb/client-core";
 import { getRootComposeRoutePath } from "@/lib/route-paths";
+import { openPaneContentInSplit } from "@/lib/split-layout/openPaneContentInSplit";
+import { useIsCompactViewport } from "@bb/shared-ui/hooks/use-compact-viewport";
+
+const NEW_THREAD_PANE_CONTENT = { kind: "new-thread" } as const;
 import { getThreadDisplayTitle } from "@/lib/thread-title";
 import { getMutationErrorMessage } from "@/lib/mutation-errors";
 import { BbHttpError } from "@bb/sdk/browser";
@@ -78,11 +82,13 @@ import {
 import {
   ChronologicalSectionThreadSections,
   ProjectThreadTree,
+  SectionThreadDragOverlay,
 } from "./ProjectRow";
 import type { ProjectThreadListState } from "./ProjectRow";
 import {
   buildMachineThreadGroups,
   buildPinnedSidebarState,
+  buildProjectThreadGroups,
   CHRONOLOGICAL_CONTAINER_ID,
   compareByCreatedAtDescending,
   compareStandardThreads,
@@ -148,6 +154,19 @@ import {
   type BuiltInSidebarSectionOptionsById,
 } from "./BuiltInSidebarSection";
 import { ReorderableSidebarSectionOrderList } from "./ReorderableSidebarSectionOrderList";
+import { SectionThreadDndProvider } from "./SectionThreadDndContext";
+import { createPortal } from "react-dom";
+import { DndContext, DragOverlay } from "@dnd-kit/core";
+import type { ConsumeDragClickSuppression } from "@/components/ui/use-drag-click-suppression";
+
+const EMPTY_THREADS: ThreadListEntry[] = [];
+import {
+  collectProjectThreadDndLookup,
+  PINNED_THREAD_PARENT_KEY,
+  useSectionThreadDnd,
+  type ProjectThreadDndGroup,
+} from "./useSectionThreadDnd";
+import { SIDEBAR_DRAG_OVERLAY_DROP_ANIMATION } from "./sortableMotion";
 import { useSidebarModeSectionOrder } from "./useSidebarModeSectionOrder";
 import { haveSameOrder } from "@/lib/stored-order";
 import {
@@ -915,8 +934,13 @@ interface ProjectModeSectionsProps extends BuiltInSectionRenderState {
   isReady: boolean;
   onCreateProjectThread: (projectId: string) => void;
   onProjectSelect?: () => void;
+  onReorderPinnedThread: NonNullable<
+    PinnedThreadTreeProps["onReorderPinnedRoot"]
+  >;
   onToggleEnvironmentCollapsed: ToggleCollapsedId;
   onToggleThreadCollapsed: ToggleCollapsedId;
+  pinnedReorderPending: boolean;
+  pinnedThreads: readonly ThreadListEntry[];
   pinnedSection: BuiltInSidebarSectionOptions;
   projects: readonly ProjectResponse[];
   renderSectionDisplayOptions: (sectionId: SidebarSectionId) => ReactNode;
@@ -938,9 +962,12 @@ function ProjectModeSections({
   isSectionDisplayOptionsOpen,
   onCreateProjectThread,
   onProjectSelect,
+  onReorderPinnedThread,
   onToggleCollapsed,
   onToggleEnvironmentCollapsed,
   onToggleThreadCollapsed,
+  pinnedReorderPending,
+  pinnedThreads,
   pinnedSection,
   projects,
   renderSectionDisplayOptions,
@@ -1049,9 +1076,13 @@ function ProjectModeSections({
     }
     return rows;
   }, [projectRows]);
-  const personalThreads =
-    threadsByProject.get(PERSONAL_PROJECT_ID)?.filter(isSidebarProjectThread) ??
-    [];
+  const personalThreads = useMemo(
+    () =>
+      threadsByProject
+        .get(PERSONAL_PROJECT_ID)
+        ?.filter(isSidebarProjectThread) ?? EMPTY_THREADS,
+    [threadsByProject],
+  );
   const { onOrderChange, order, persistedOrder } = useSidebarModeSectionOrder({
     mode: "project",
     entitySectionIds: projectSectionIds,
@@ -1060,6 +1091,59 @@ function ProjectModeSections({
     isReady,
   });
   const reorderDisabled = order.length < 2;
+  const threadDndGroups = useMemo<ProjectThreadDndGroup[]>(() => {
+    const groups: ProjectThreadDndGroup[] = projectRows.map((row) => ({
+      parentKey: row.project.id,
+      sectionId: buildSidebarEntitySectionId("project", row.project.id),
+      items: buildProjectThreadGroups(
+        threadsByProject.get(row.project.id) ?? EMPTY_THREADS,
+        compareThreads,
+        draftThreadIds,
+      ),
+    }));
+    groups.push({
+      parentKey: PERSONAL_PROJECT_ID,
+      sectionId: "threads",
+      items: buildProjectThreadGroups(
+        personalThreads,
+        compareThreads,
+        draftThreadIds,
+      ),
+    });
+    return groups;
+  }, [
+    compareThreads,
+    draftThreadIds,
+    personalThreads,
+    projectRows,
+    threadsByProject,
+  ]);
+  const threadDndLookup = useMemo(
+    () => collectProjectThreadDndLookup(threadDndGroups, pinnedThreads),
+    [pinnedThreads, threadDndGroups],
+  );
+  const handleExpandDropParent = useCallback(
+    (parentKey: string) => {
+      setCollapsedProjectIdList((current) =>
+        current.includes(parentKey)
+          ? current.filter((projectId) => projectId !== parentKey)
+          : current,
+      );
+    },
+    [setCollapsedProjectIdList],
+  );
+  const threadDnd = useSectionThreadDnd({
+    enabled: true,
+    lookup: threadDndLookup,
+    moveTarget: "project",
+    onExpandDropParent: handleExpandDropParent,
+    topLevelSectionOrder: order,
+    topLevelSectionReorderOrder: persistedOrder,
+    onTopLevelSectionOrderChange: onOrderChange,
+    pinnedReorderPending,
+    pinnedThreads,
+    onReorderPinnedThread,
+  });
   const builtInSections: BuiltInSidebarSectionOptionsById = {
     pinned: pinnedSection,
     threads: {
@@ -1087,52 +1171,107 @@ function ProjectModeSections({
     },
   };
 
+  const renderSection = (
+    sectionId: SidebarSectionId,
+    consumeClickSuppression?: ConsumeDragClickSuppression,
+  ) => {
+    const builtInSection = renderBuiltInSidebarSection({
+      sectionId,
+      sections: {
+        ...builtInSections,
+        pinned: {
+          ...builtInSections.pinned,
+          isDropTargetActive:
+            threadDnd?.dragOverParentKey === PINNED_THREAD_PARENT_KEY,
+        },
+        threads: {
+          ...builtInSections.threads,
+          isDropTargetActive:
+            threadDnd?.dragOverParentKey === PERSONAL_PROJECT_ID,
+        },
+      },
+      disabled: reorderDisabled,
+      collapsedSectionIds,
+      onToggleCollapsed,
+      ...(consumeClickSuppression ? { consumeClickSuppression } : {}),
+      showPinnedSection,
+    });
+    if (builtInSection !== undefined) return builtInSection;
+    const row = projectRowsBySectionId.get(sectionId);
+    if (!row) return null;
+    return (
+      <SortableProjectRow
+        key={sectionId}
+        sortableId={sectionId}
+        project={row.project}
+        threadListState={row.threadListState}
+        progressiveDisclosureEnabled={progressiveDisclosureEnabled}
+        selectedThreadId={selectedThreadId}
+        isActive={row.isActive}
+        isCollapsed={collapsedProjectIds.has(row.project.id)}
+        collapsedThreadIds={collapsedThreadIds}
+        collapsedEnvironmentIds={collapsedEnvironmentIds}
+        compareThreads={compareThreads}
+        isLocalPathInvalid={row.isLocalPathInvalid}
+        isDropTargetActive={threadDnd?.dragOverParentKey === row.project.id}
+        headerActions={renderSectionDisplayOptions(sectionId)}
+        headerActionsOpen={isSectionDisplayOptionsOpen(sectionId)}
+        onProjectSelect={onProjectSelect}
+        onCreateProjectThread={onCreateProjectThread}
+        onToggleProjectCollapsed={toggleProjectCollapsed}
+        onToggleThreadCollapsed={onToggleThreadCollapsed}
+        onToggleEnvironmentCollapsed={onToggleEnvironmentCollapsed}
+        reorderDisabled={reorderDisabled}
+        {...(consumeClickSuppression
+          ? { consumeProjectClickSuppression: consumeClickSuppression }
+          : {})}
+      />
+    );
+  };
+
+  if (!threadDnd) {
+    return (
+      <ReorderableSidebarSectionOrderList
+        order={order}
+        reorderOrder={persistedOrder}
+        onOrderChange={onOrderChange}
+      >
+        {(sectionId, consumeClickSuppression) =>
+          renderSection(sectionId, consumeClickSuppression)
+        }
+      </ReorderableSidebarSectionOrderList>
+    );
+  }
+
   return (
-    <ReorderableSidebarSectionOrderList
-      order={order}
-      reorderOrder={persistedOrder}
-      onOrderChange={onOrderChange}
-    >
-      {(sectionId, consumeClickSuppression) => {
-        const builtInSection = renderBuiltInSidebarSection({
-          sectionId,
-          sections: builtInSections,
-          disabled: reorderDisabled,
-          collapsedSectionIds,
-          onToggleCollapsed,
-          consumeClickSuppression,
-          showPinnedSection,
-        });
-        if (builtInSection !== undefined) return builtInSection;
-        const row = projectRowsBySectionId.get(sectionId);
-        if (!row) return null;
-        return (
-          <SortableProjectRow
-            key={sectionId}
-            sortableId={sectionId}
-            project={row.project}
-            threadListState={row.threadListState}
-            progressiveDisclosureEnabled={progressiveDisclosureEnabled}
-            selectedThreadId={selectedThreadId}
-            isActive={row.isActive}
-            isCollapsed={collapsedProjectIds.has(row.project.id)}
-            collapsedThreadIds={collapsedThreadIds}
-            collapsedEnvironmentIds={collapsedEnvironmentIds}
-            compareThreads={compareThreads}
-            isLocalPathInvalid={row.isLocalPathInvalid}
-            headerActions={renderSectionDisplayOptions(sectionId)}
-            headerActionsOpen={isSectionDisplayOptionsOpen(sectionId)}
-            onProjectSelect={onProjectSelect}
-            onCreateProjectThread={onCreateProjectThread}
-            onToggleProjectCollapsed={toggleProjectCollapsed}
-            onToggleThreadCollapsed={onToggleThreadCollapsed}
-            onToggleEnvironmentCollapsed={onToggleEnvironmentCollapsed}
-            reorderDisabled={reorderDisabled}
-            consumeProjectClickSuppression={consumeClickSuppression}
-          />
-        );
-      }}
-    </ReorderableSidebarSectionOrderList>
+    <DndContext {...threadDnd.dndContextProps}>
+      <SectionThreadDndProvider value={threadDnd}>
+        <ReorderableSidebarSectionOrderList
+          order={order}
+          reorderOrder={persistedOrder}
+          onOrderChange={onOrderChange}
+        >
+          {(sectionId, consumeClickSuppression) =>
+            renderSection(sectionId, consumeClickSuppression)
+          }
+        </ReorderableSidebarSectionOrderList>
+        {createPortal(
+          <DragOverlay
+            className="cursor-grabbing"
+            dropAnimation={
+              threadDnd.activeThread
+                ? SIDEBAR_DRAG_OVERLAY_DROP_ANIMATION
+                : null
+            }
+          >
+            {threadDnd.activeThread ? (
+              <SectionThreadDragOverlay thread={threadDnd.activeThread} />
+            ) : null}
+          </DragOverlay>,
+          document.body,
+        )}
+      </SectionThreadDndProvider>
+    </DndContext>
   );
 }
 
@@ -1436,6 +1575,8 @@ function ProjectListComponent({
   isCreatingProject = false,
 }: ProjectListProps) {
   const navigate = useNavigate();
+  const store = useStore();
+  const isCompactViewport = useIsCompactViewport();
   const setRootComposeProjectId = useSetRootComposeProjectId();
   const sidebarNavigationQuery = useSidebarNavigation();
   const sidebarNavigation = sidebarNavigationQuery.data;
@@ -1510,14 +1651,21 @@ function ProjectListComponent({
     (projectId: string, sectionId?: string) => {
       setRootComposeProjectId(projectId);
       onProjectSelect?.();
-      navigate(getRootComposeRoutePath(), {
-        state: {
-          focusPrompt: true,
-          ...(sectionId ? { sectionId } : {}),
+      const state = {
+        focusPrompt: true,
+        ...(sectionId ? { sectionId } : {}),
+      };
+      openPaneContentInSplit({
+        store,
+        navigate: (route, options) => {
+          navigate(route, { ...options, state });
         },
+        content: NEW_THREAD_PANE_CONTENT,
+        route: getRootComposeRoutePath(),
+        enabled: !isCompactViewport,
       });
     },
-    [navigate, onProjectSelect, setRootComposeProjectId],
+    [isCompactViewport, navigate, onProjectSelect, setRootComposeProjectId, store],
   );
   const handleCreateProjectThread = useCallback(
     (projectId: string) => {
@@ -2008,6 +2156,9 @@ function ProjectListComponent({
               projects={projects ?? EMPTY_PROJECTS}
               threads={threads}
               draftThreadIds={draftThreadIds}
+              pinnedReorderPending={isPinnedReorderPending}
+              pinnedThreads={pinnedRootThreads}
+              onReorderPinnedThread={handleReorderPinnedRoot}
               effectivePinnedThreadIds={
                 pinnedSidebarState.effectivePinnedThreadIds
               }

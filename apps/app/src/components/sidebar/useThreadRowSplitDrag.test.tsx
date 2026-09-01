@@ -5,7 +5,12 @@ import { act, renderHook } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
 import type { ReactNode } from "react";
 import { splitLayoutAtom } from "@/lib/split-layout/atoms";
-import { countPanes, findPaneByThread, listPanes } from "@/lib/split-layout";
+import {
+  countPanes,
+  findPaneByThread,
+  listPanes,
+  MAX_PANES,
+} from "@/lib/split-layout";
 import type { LayoutNode, PaneContent, SplitLayout } from "@/lib/split-layout";
 import { RouteNavigationProvider } from "@/components/ui/app-route-anchor";
 import { useThreadRowSplitDrag } from "./useThreadRowSplitDrag";
@@ -48,13 +53,13 @@ function twoPanes(): SplitLayout {
   };
 }
 
-function eightPanes(): SplitLayout {
+function cappedPanes(): SplitLayout {
   return {
     root: {
       type: "split",
       dir: "row",
-      sizes: Array.from({ length: 8 }, () => 0.125),
-      children: Array.from({ length: 8 }, (_, index) =>
+      sizes: Array.from({ length: MAX_PANES }, () => 1 / MAX_PANES),
+      children: Array.from({ length: MAX_PANES }, (_, index) =>
         pane(`pane-${index + 1}`, `t${index + 1}`),
       ),
     },
@@ -111,15 +116,21 @@ describe("useThreadRowSplitDrag — openInSplit (cmd-click / context-menu entry)
     });
   });
 
-  it("coerces to a replace of the focused pane at the eight-pane cap", () => {
-    const { store, openInSplit } = renderOpenInSplit("t9", eightPanes());
+  it("coerces to a replace of the focused pane at the pane cap", () => {
+    const extraThreadId = `t${MAX_PANES + 1}`;
+    const { store, openInSplit } = renderOpenInSplit(
+      extraThreadId,
+      cappedPanes(),
+    );
     openInSplit();
     const layout = store.get(splitLayoutAtom);
-    expect(countPanes(layout!.root)).toBe(8);
-    const opened = findPaneByThread(layout!.root, "p1", "t9");
+    expect(countPanes(layout!.root)).toBe(MAX_PANES);
+    const opened = findPaneByThread(layout!.root, "p1", extraThreadId);
     expect(opened?.paneId).toBe("pane-1");
     expect(findPaneByThread(layout!.root, "p1", "t1")).toBeNull();
-    expect(navigateSpy).toHaveBeenCalledWith("/projects/p1/threads/t9");
+    expect(navigateSpy).toHaveBeenCalledWith(
+      `/projects/p1/threads/${extraThreadId}`,
+    );
   });
 
   it("plain-navigates without touching the layout on compact viewports", () => {

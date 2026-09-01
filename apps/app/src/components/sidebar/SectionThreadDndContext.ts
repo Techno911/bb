@@ -7,6 +7,6 @@ const SectionThreadDndContext = createContext<SectionThreadDndState | null>(
 
 export const SectionThreadDndProvider = SectionThreadDndContext.Provider;
 
-export function useChronologicalSectionThreadDnd(): SectionThreadDndState | null {
+export function useSidebarThreadDnd(): SectionThreadDndState | null {
   return useContext(SectionThreadDndContext);
 }

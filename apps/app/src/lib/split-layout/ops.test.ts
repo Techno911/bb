@@ -92,20 +92,20 @@ describe("split layout operations", () => {
     );
     const three = splitPane(two, "pane-1", "bottom", threadContent("thread-3"));
     const four = splitPane(three, "pane-3", "right", threadContent("thread-4"));
-    let eight = four;
+    let capped = four;
     for (let index = 5; index <= MAX_PANES; index += 1) {
-      eight = splitPane(
-        eight,
-        eight.focusedPaneId,
+      capped = splitPane(
+        capped,
+        capped.focusedPaneId,
         index % 2 === 0 ? "right" : "bottom",
         threadContent(`thread-${index}`),
       );
     }
     const rejected = splitPane(
-      eight,
+      capped,
       "pane-1",
       "top",
-      threadContent("thread-9"),
+      threadContent(`thread-${MAX_PANES + 1}`),
     );
 
     expect(listPanes(two.root).map((item) => item.paneId)).toEqual([
@@ -113,19 +113,12 @@ describe("split layout operations", () => {
       "pane-1",
     ]);
     expect(two.focusedPaneId).toBe("pane-2");
-    expect(listPanes(eight.root).map((item) => item.paneId)).toEqual([
-      "pane-2",
-      "pane-1",
-      "pane-3",
-      "pane-4",
-      "pane-5",
-      "pane-6",
-      "pane-7",
-      "pane-8",
-    ]);
-    expect(countPanes(eight.root)).toBe(MAX_PANES);
-    expect(eight.focusedPaneId).toBe("pane-8");
-    expect(rejected).toBe(eight);
+    expect(listPanes(capped.root).map((item) => item.paneId).slice(0, 4)).toEqual(
+      ["pane-2", "pane-1", "pane-3", "pane-4"],
+    );
+    expect(countPanes(capped.root)).toBe(MAX_PANES);
+    expect(capped.focusedPaneId).toBe(`pane-${MAX_PANES}`);
+    expect(rejected).toBe(capped);
     expect(findPaneByThread(two.root, "project-2", "thread-2")?.paneId).toBe(
       "pane-2",
     );
@@ -248,16 +241,9 @@ describe("split layout operations", () => {
             type: "split",
             dir: "col",
             sizes: [99, 1, 1, 1],
-            children: [
-              pane("pane-2"),
-              pane("pane-3"),
-              pane("pane-4"),
-              pane("pane-5"),
-              pane("pane-6"),
-              pane("pane-7"),
-              pane("pane-8"),
-              pane("pane-9"),
-            ],
+            children: Array.from({ length: MAX_PANES }, (_, index) =>
+              pane(`pane-${index + 2}`),
+            ),
           },
         ],
       },
@@ -267,16 +253,9 @@ describe("split layout operations", () => {
     const normalized = normalize(malformed);
 
     expect(countPanes(normalized.root)).toBe(MAX_PANES);
-    expect(listPanes(normalized.root).map((item) => item.paneId)).toEqual([
-      "pane-1",
-      "pane-2",
-      "pane-3",
-      "pane-4",
-      "pane-5",
-      "pane-6",
-      "pane-7",
-      "pane-8",
-    ]);
+    expect(listPanes(normalized.root).map((item) => item.paneId)).toEqual(
+      Array.from({ length: MAX_PANES }, (_, index) => `pane-${index + 1}`),
+    );
     expect(normalized.focusedPaneId).toBe("pane-1");
     expectNormalizedSizes(normalized);
     expectValidFocus(normalized);

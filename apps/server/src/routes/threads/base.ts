@@ -58,6 +58,7 @@ import {
 } from "../../services/threads/thread-runtime-display.js";
 import { assertValidParentThread } from "../../services/threads/thread-parent.js";
 import { handleThreadOwnershipChange } from "../../services/threads/thread-ownership.js";
+import { moveThreadDescendantsToProject } from "../../services/threads/thread-project-move.js";
 import { applyThreadExecutionOverride } from "../../services/threads/thread-execution-override.js";
 import { emitPluginThreadDeleted } from "../../services/plugins/plugin-thread-events.js";
 
@@ -407,6 +408,14 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
     if ("title" in payload) {
       metadataUpdate.title = payload.title;
     }
+    const nextProjectId =
+      payload.projectId !== undefined && payload.projectId !== thread.projectId
+        ? payload.projectId
+        : null;
+    if (nextProjectId !== null) {
+      requirePublicProject(deps.db, nextProjectId);
+      metadataUpdate.projectId = nextProjectId;
+    }
     const sectionId = payload.sectionId;
     if (sectionId !== undefined) {
       if (sectionId !== null) {
@@ -445,6 +454,13 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
           title: payload.title,
         });
       }
+    }
+
+    if (nextProjectId !== null) {
+      moveThreadDescendantsToProject(deps, {
+        threadId: thread.id,
+        projectId: nextProjectId,
+      });
     }
 
     if (

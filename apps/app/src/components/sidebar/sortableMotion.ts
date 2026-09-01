@@ -27,7 +27,7 @@ export interface SidebarSortableDragBindings {
 
 interface UseSidebarSortableArgs {
   id: string;
-  disabled: boolean;
+  disabled: boolean | { draggable: boolean; droppable: boolean };
 }
 
 interface UseSidebarSortableResult {
@@ -61,9 +61,16 @@ export function useSidebarSortable({
     }),
     [isDragging, transform, transition],
   );
+  const draggableDisabled =
+    typeof disabled === "boolean" ? disabled : disabled.draggable;
   const dragBindings = useMemo<SidebarSortableDragBindings>(
-    () => ({ attributes, disabled, listeners, setActivatorNodeRef }),
-    [attributes, disabled, listeners, setActivatorNodeRef],
+    () => ({
+      attributes,
+      disabled: draggableDisabled,
+      listeners,
+      setActivatorNodeRef,
+    }),
+    [attributes, draggableDisabled, listeners, setActivatorNodeRef],
   );
 
   return { dragBindings, isOver, setNodeRef, style };

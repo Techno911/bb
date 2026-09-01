@@ -8,7 +8,7 @@ import type {
   SplitSide,
 } from "./types";
 
-export const MAX_PANES = 8;
+export const MAX_PANES = 64;
 
 const MIN_SIZE = 0.15;
 const MAX_SIZE = 0.85;
