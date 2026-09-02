@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isHttpOrHttpsUrl,
   openUrlByPreference,
+  requiresSignedInBrowser,
   resolveUrlOpenTarget,
 } from "./in-app-browser-link-preference";
 
@@ -22,7 +23,47 @@ describe("isHttpOrHttpsUrl", () => {
   });
 });
 
+describe("requiresSignedInBrowser", () => {
+  it("matches services that are only usable while signed in", () => {
+    for (const url of [
+      "https://docs.google.com/document/d/abc/edit",
+      "https://drive.google.com/file/d/abc/view",
+      "https://google.com",
+      "https://www.notion.so/page",
+      "https://www.figma.com/design/abc",
+      "https://miro.com/app/board/abc/",
+      "https://app.fireflies.ai/view/abc",
+      "HTTPS://DOCS.GOOGLE.COM/document/d/abc/edit",
+    ]) {
+      expect(requiresSignedInBrowser(url)).toBe(true);
+    }
+  });
+
+  it("does not match lookalike hosts or unrelated sites", () => {
+    for (const url of [
+      "https://example.com/docs",
+      "https://notgoogle.com/document",
+      "https://evilgoogle.com",
+      "https://google.com.attacker.example/doc",
+      "http://localhost:5173/preview",
+      "file:///Users/me/app.ts",
+    ]) {
+      expect(requiresSignedInBrowser(url)).toBe(false);
+    }
+  });
+});
+
 describe("resolveUrlOpenTarget", () => {
+  it("keeps signed-in services in the default browser even with the in-app preference on", () => {
+    expect(
+      resolveUrlOpenTarget({
+        desktopBrowserAvailable: true,
+        openLinksInAppBrowser: true,
+        url: "https://docs.google.com/document/d/abc/edit",
+      }),
+    ).toBe("external-browser");
+  });
+
   it("routes http(s) links into the in-app browser on desktop when enabled", () => {
     expect(
       resolveUrlOpenTarget({
