@@ -29,7 +29,7 @@ Agent execution:
   [--service-tier <default|fast>]
   [--permission-mode <accept-edits|auto|full>]
   [--environment <environment-id|path> | --new-environment worktree]
-  [--base-branch <branch>] [--target-thread <thread-id>]
+  [--base-branch <branch>] [--target-thread <thread-id>] [--fresh-thread]
 
 Script execution:
 

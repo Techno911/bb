@@ -85,6 +85,18 @@ function boolFlag(args: ParsedArgs, name: string): boolean {
   return args.flags.has(name);
 }
 
+/**
+ * `--fresh-thread` opens a new thread on every run; `--fresh-thread=false`
+ * restores the default of continuing the thread the previous run created.
+ */
+function parseFreshThreadFlag(args: ParsedArgs): boolean | undefined {
+  const value = args.flags.get("fresh-thread");
+  if (value === undefined) return undefined;
+  if (value === true || value === "true") return true;
+  if (value === "false") return false;
+  throw new Error("Invalid --fresh-thread. Expected true or false.");
+}
+
 function requireFlag(args: ParsedArgs, name: string): string {
   const value = flag(args, name);
   if (!value) throw new Error(`Missing required option --${name} <value>.`);
@@ -481,6 +493,9 @@ async function buildExecution(
         ...(flag(args, "target-thread")
           ? { targetThreadId: flag(args, "target-thread") }
           : {}),
+        ...(parseFreshThreadFlag(args) === true
+          ? { freshThreadPerRun: true }
+          : {}),
       },
     };
   }
@@ -491,6 +506,7 @@ async function buildExecution(
     args.flags.has("service-tier") ||
     args.flags.has("permission-mode") ||
     args.flags.has("target-thread") ||
+    args.flags.has("fresh-thread") ||
     args.flags.has("environment") ||
     args.flags.has("new-environment") ||
     args.flags.has("base-branch")
@@ -542,6 +558,7 @@ async function buildAgentExecutionUpdate(
     "service-tier",
     "permission-mode",
     "target-thread",
+    "fresh-thread",
     "environment",
     "new-environment",
     "base-branch",
@@ -566,6 +583,8 @@ async function buildAgentExecutionUpdate(
       requireFlag(args, "permission-mode"),
     );
   }
+  const freshThread = parseFreshThreadFlag(args);
+  if (freshThread !== undefined) update.freshThreadPerRun = freshThread;
   if (args.flags.has("target-thread")) {
     update.target = {
       type: "target-thread",

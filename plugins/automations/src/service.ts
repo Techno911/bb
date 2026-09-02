@@ -385,6 +385,11 @@ function applyAgentExecutionUpdate(
   } else if (update.serviceTier !== undefined) {
     next.serviceTier = update.serviceTier;
   }
+  if (update.freshThreadPerRun === true) {
+    next.freshThreadPerRun = true;
+  } else if (update.freshThreadPerRun === false) {
+    delete next.freshThreadPerRun;
+  }
   if (update.target === undefined) return next;
   if (update.target.type === "target-thread") {
     return { ...next, targetThreadId: update.target.threadId };
