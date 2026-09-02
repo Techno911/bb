@@ -103,6 +103,21 @@ export async function executeAgentRun(
       });
       return;
     }
+    // Without an explicit target, a scheduled automation continues the thread
+    // its previous run created instead of opening a new one per run: one
+    // automation, one thread in the sidebar, the run history inside it. A
+    // thread that is gone, archived or otherwise not runnable falls through
+    // to a fresh spawn, and `freshThreadPerRun` opts out entirely.
+    if (
+      args.execution.freshThreadPerRun !== true &&
+      args.automation.lastRunThreadId !== null &&
+      (await continueLastRunThread(bb, db, {
+        ...args,
+        lastRunThreadId: args.automation.lastRunThreadId,
+      }))
+    ) {
+      return;
+    }
     const thread = sdkThreadSchema.parse(
       await bb.sdk.threads.spawn({
         projectId: args.automation.projectId,
@@ -216,6 +231,50 @@ async function reuseTargetThreadForRun(
     ],
     permissionMode: args.execution.permissionMode,
   });
+}
+
+async function continueLastRunThread(
+  bb: AgentRunApi,
+  db: Db,
+  args: AgentRunArgs & { lastRunThreadId: string },
+): Promise<boolean> {
+  let thread: SdkThread;
+  try {
+    thread = sdkThreadSchema.parse(
+      await bb.sdk.threads.get({ threadId: args.lastRunThreadId }),
+    );
+  } catch (error) {
+    if (!isThreadGoneError(error)) throw error;
+    return false;
+  }
+  if (!isThreadReusable(thread)) return false;
+
+  setAutomationRunThread(db, {
+    runId: args.run.id,
+    threadId: args.lastRunThreadId,
+  });
+  markAutomationThread(db, {
+    automationId: args.automation.id,
+    runId: args.run.id,
+    threadId: args.lastRunThreadId,
+    now: Date.now(),
+  });
+  await bb.sdk.threads.send({
+    threadId: args.lastRunThreadId,
+    mode: "steer-if-active",
+    input: [
+      {
+        type: "text",
+        text: renderAutomationDueMessage({
+          automationId: args.automation.id,
+          prompt: args.execution.prompt,
+        }),
+        mentions: [],
+      },
+    ],
+    permissionMode: args.execution.permissionMode,
+  });
+  return true;
 }
 
 function closeRunForUnusableTargetThread(

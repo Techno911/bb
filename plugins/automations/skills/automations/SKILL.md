@@ -47,6 +47,7 @@ Agent mode flags:
 --service-tier <tier>          default or fast (update also accepts none to clear)
 --permission-mode <mode>       accept-edits, auto, or full
 --target-thread <id>           Reuse/re-prompt an existing thread
+--fresh-thread                 Open a new thread on every run (default: continue the last run's thread)
 --environment <id-or-path>     Existing environment ID or unmanaged workspace path
 --new-environment <kind>       Create a new environment (worktree)
 --base-branch <branch>         Base branch for new managed worktrees
@@ -123,6 +124,12 @@ bb automation update <automationId> --project <id> \
 `--target-thread`, `--environment`, and `--new-environment` are mutually
 exclusive. These flags apply only to agent automations; script automations have
 no execution environment.
+
+Without `--target-thread`, an agent automation continues the thread its previous
+run created: one automation keeps one thread in the sidebar, and each run lands
+there as a new due message. If that thread was deleted or archived, the next run
+spawns a fresh one. Pass `--fresh-thread` to open a new thread on every run
+instead; `--fresh-thread=false` on update restores the default.
 
 Every command supports `--json`. For `list` and `show`, the JSON result is a
 union discriminated by `problem`: canonical records omit it, while degraded
