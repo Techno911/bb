@@ -81,6 +81,32 @@ describe("createPromptTextListTransaction", () => {
     expect(applied(stateFromParagraphs(["just text"], 10))).toBeNull();
   });
 
+  it("bumps the item that already sat below the split (repro, Артём 01.09.2026)", () => {
+    // "1. first" / "2. second", caret at the end of "first" — splitting there
+    // must turn "2. second" into "3. second", not leave a second "2.".
+    expect(applied(stateFromParagraphs(["1. first", "2. second"], 9))).toBe(
+      "1. first\n2. \n3. second",
+    );
+  });
+
+  it("renumbers every item below the split, not just the first", () => {
+    expect(
+      applied(stateFromParagraphs(["1. one", "2. two", "3. three", "4. four"], 7)),
+    ).toBe("1. one\n2. \n3. two\n4. three\n5. four");
+  });
+
+  it("does not renumber a following bullet list", () => {
+    expect(applied(stateFromParagraphs(["1. first", "- bullet"], 9))).toBe(
+      "1. first\n2. \n- bullet",
+    );
+  });
+
+  it("stops at a blank paragraph separating two lists", () => {
+    expect(
+      applied(stateFromParagraphs(["1. first", "2. second", "", "1. other"], 9)),
+    ).toBe("1. first\n2. \n3. second\n\n1. other");
+  });
+
   it("stands aside while the caret sits inside the marker", () => {
     expect(applied(stateFromParagraphs(["1. first"], 2))).toBeNull();
   });
