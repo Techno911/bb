@@ -11,6 +11,7 @@ import {
   type FocusEvent as ReactFocusEvent,
   type ReactNode,
   type RefObject,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import type {
   PromptTextMention,
@@ -113,6 +114,7 @@ const FOLLOW_UP_PROMPT_BOX_DEFAULT_MIN_HEIGHT = 68;
 const FOLLOW_UP_PROMPT_BOX_ELASTIC_TARGET_HEIGHT =
   FOLLOW_UP_PROMPT_BOX_DEFAULT_MIN_HEIGHT +
   THREAD_PROMPT_CONTEXT_BANNER_ROW_HEIGHT;
+const COMPOSER_OVERLAY_TRIGGER_SELECTOR = "[aria-haspopup]";
 const OPEN_COMPOSER_OVERLAY_TRIGGER_SELECTOR =
   '[aria-haspopup][aria-expanded="true"]';
 const MOBILE_KEYBOARD_VIEWPORT_MIN_DELTA_PX = 80;
@@ -303,6 +305,11 @@ function FollowUpPromptBoxWithComposer({
   const interactionExpandedRef = useRef(false);
   const pendingFocusExpansionCleanupRef = useRef<(() => void) | null>(null);
   const pendingFocusLossCleanupRef = useRef<(() => void) | null>(null);
+  // Set while a pointer is down on an overlay trigger inside the composer
+  // (model picker, attachments menu). The trigger blurs the editor on
+  // pointerdown, before the overlay reports itself open, so the focus-loss
+  // check must not read that blur as the user leaving the composer.
+  const overlayTriggerPointerDownRef = useRef(false);
   const [isInteractionExpanded, setIsInteractionExpanded] = useState(false);
   const [widePromptBoxCollapsedFor, setWidePromptBoxCollapsedFor] = useState<
     string | number | null
@@ -426,6 +433,12 @@ function FollowUpPromptBoxWithComposer({
         ) {
           return;
         }
+        if (overlayTriggerPointerDownRef.current) {
+          // A real click holds the pointer for longer than a frame: the
+          // overlay opens on pointerup, after this check runs. Keep the
+          // composer expanded; a later focus loss still collapses it.
+          return;
+        }
 
         const collapse = () => {
           cancelPendingFocusExpansion();
@@ -492,6 +505,22 @@ function FollowUpPromptBoxWithComposer({
       setInteractionExpanded,
     ],
   );
+  const handleComposerPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const target = event.target;
+      overlayTriggerPointerDownRef.current =
+        target instanceof Element &&
+        target.closest(COMPOSER_OVERLAY_TRIGGER_SELECTOR) !== null;
+    },
+    [],
+  );
+  const releaseOverlayTriggerPointer = useCallback(() => {
+    // Let the overlay finish opening before the flag drops, so the blur
+    // check that follows pointerup still sees the trigger as engaged.
+    window.setTimeout(() => {
+      overlayTriggerPointerDownRef.current = false;
+    }, 0);
+  }, []);
   const collapseWidePromptBox = useCallback(() => {
     cancelPendingFocusExpansion();
     cancelPendingFocusLoss();
@@ -620,6 +649,9 @@ function FollowUpPromptBoxWithComposer({
       hidden={hasPendingInteraction}
       onBlurCapture={scheduleCollapseAfterFocusLoss}
       onFocusCapture={handleComposerFocus}
+      onPointerDownCapture={handleComposerPointerDown}
+      onPointerUpCapture={releaseOverlayTriggerPointer}
+      onPointerCancelCapture={releaseOverlayTriggerPointer}
     >
       <PromptBoxWithScrollAnchor
         id={id}

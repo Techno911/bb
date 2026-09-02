@@ -994,6 +994,50 @@ describe("FollowUpPromptBox", () => {
     );
   });
 
+  it("stays expanded when an overlay trigger inside the composer takes the pointer before it opens", async () => {
+    mocks.isCompactViewport = true;
+    render(
+      <>
+        <FollowUpPromptBox
+          {...createFollowUpPromptBoxProps({ kind: "ready" })}
+        />
+        <button type="button">Outside composer</button>
+      </>,
+    );
+    const input = screen.getByRole("textbox", { name: "Follow-up prompt" });
+    const trigger = screen.getByRole("button", { name: "Submit" });
+    const outside = screen.getByRole("button", { name: "Outside composer" });
+    // A picker trigger that has not opened yet: a real click holds the
+    // pointer for longer than a frame, and the trigger blurs the editor on
+    // pointerdown before it reports itself expanded.
+    trigger.setAttribute("aria-haspopup", "menu");
+    trigger.setAttribute("aria-expanded", "false");
+    act(() => input.focus());
+
+    fireEvent.pointerDown(trigger);
+    act(() => outside.focus());
+    await act(async () => {
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    });
+
+    expect(screen.getByTestId("prompt-box").getAttribute("data-compact")).toBe(
+      "false",
+    );
+
+    // Once the pointer is released and focus leaves for real, it collapses.
+    fireEvent.pointerUp(trigger);
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    });
+    act(() => input.focus());
+    act(() => outside.focus());
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("prompt-box").getAttribute("data-compact"),
+      ).toBe("true"),
+    );
+  });
+
   it("stays expanded while a composer-owned overlay is open", async () => {
     mocks.isCompactViewport = true;
     render(
