@@ -218,6 +218,7 @@ import {
 } from "@/lib/bb-desktop";
 import {
   openUrlByPreference,
+  requiresSignedInBrowser,
   useOpenLinksInAppBrowserPreference,
 } from "@/lib/in-app-browser-link-preference";
 import {
@@ -804,6 +805,12 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
   const openBrowserTab = useCallback(
     (url?: string) => {
       const browserUrl = url ?? "";
+      // A page the user can only use while signed in belongs in their own
+      // browser: the in-app browser has its own session and opens it signed out.
+      if (requiresSignedInBrowser(browserUrl)) {
+        openUrlInExternalBrowser(browserUrl);
+        return;
+      }
       const tab = openTab({ kind: "browser", url: browserUrl });
       if (browserUrl.length === 0 && tab?.kind === "browser") {
         setBrowserAddressFocusRequest((current) => ({

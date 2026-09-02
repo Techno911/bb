@@ -120,11 +120,15 @@ import type {
   WorkspaceFileTabState,
 } from "@bb/client-core";
 import {
+  requiresSignedInBrowser,
   resolveUrlOpenTarget,
   useOpenLinksInAppBrowserPreference,
 } from "@/lib/in-app-browser-link-preference";
 import type { MarkdownPreviewLinkHandler } from "@/components/ui/markdown-link";
-import { UrlOpenRoutingProvider } from "@/lib/url-open-routing";
+import {
+  openUrlInExternalBrowser,
+  UrlOpenRoutingProvider,
+} from "@/lib/url-open-routing";
 import {
   AppNavigationHostProvider,
   type AppFilePreviewIntent,
@@ -1280,6 +1284,12 @@ function RootComposeSurface({
   const openBrowserTab = useCallback(
     (url?: string) => {
       const browserUrl = url ?? "";
+      // A page the user can only use while signed in belongs in their own
+      // browser: the in-app browser has its own session and opens it signed out.
+      if (requiresSignedInBrowser(browserUrl)) {
+        openUrlInExternalBrowser(browserUrl);
+        return;
+      }
       const tab = openTab({ kind: "browser", url: browserUrl });
       if (browserUrl.length === 0 && tab?.kind === "browser") {
         setBrowserAddressFocusRequest((current) => ({
