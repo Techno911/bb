@@ -1,6 +1,7 @@
 import type { ThreadRoutePathArgs } from "@/lib/route-paths";
 import type { ThreadOpenSplit, ThreadPaneAction } from "@bb/server-contract";
 import {
+  listPanes,
   countPanes,
   findPane,
   findPaneByContent,
@@ -122,6 +123,39 @@ export function reconcileLayoutForContent(
       : setFocus(withRouteState, existing.paneId);
   }
   return replacePaneContent(layout, layout.focusedPaneId, content);
+}
+
+/**
+ * Reconciles the route with a layout restored from storage on load.
+ *
+ * The app opens on the root route, and a restored layout usually has no
+ * composer pane. Replacing the focused pane would silently close whatever
+ * the person left there, so on load the composer opens beside it instead:
+ * the restored panes stay, the composer takes a new pane on the right.
+ * Any other content, and any later navigation, keeps the usual rules.
+ */
+export function reconcileLayoutForContentOnLoad(
+  layout: SplitLayout | null,
+  content: PaneContent,
+): SplitLayout {
+  if (
+    layout === null ||
+    content.kind !== "new-thread" ||
+    findPaneByContent(layout.root, content) !== null ||
+    countPanes(layout.root) >= MAX_PANES
+  ) {
+    return reconcileLayoutForContent(layout, content);
+  }
+  // Rightmost, not beside the focused pane: the person asked for the composer
+  // to always land to the right of everything that was open.
+  const panes = listPanes(layout.root);
+  const rightmost = panes[panes.length - 1] ?? null;
+  return splitPane(
+    layout,
+    rightmost?.paneId ?? layout.focusedPaneId,
+    "right",
+    content,
+  );
 }
 
 export function focusedPaneRoute(layout: SplitLayout): string | null {
