@@ -1719,6 +1719,20 @@ describe("SplitThreadArea", () => {
     expect(screen.getByTestId("pane-thr-b")).toBeTruthy();
   });
 
+  it("keeps a restored layout intact on the root route and opens the composer beside it", async () => {
+    renderSplitArea({
+      path: "/",
+      layout: twoPaneLayout("pane-1"),
+      routeContent: { kind: "new-thread" },
+    });
+
+    expect(await screen.findByTestId("pane-thr-a")).toBeTruthy();
+    expect(screen.getByTestId("pane-thr-b")).toBeTruthy();
+    await waitFor(() => {
+      expect(document.querySelectorAll("[data-split-pane-id]")).toHaveLength(3);
+    });
+  });
+
   it("restores eight successive default-right opens, then focuses and closes with valid URL state", async () => {
     const layout = eightPaneThreadLayout();
     expect(layout.root).toMatchObject({

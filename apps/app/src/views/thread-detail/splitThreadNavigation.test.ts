@@ -13,6 +13,7 @@ import {
   createSinglePaneLayout,
   focusedPaneRoute,
   reconcileLayoutForContent,
+  reconcileLayoutForContentOnLoad,
 } from "./splitThreadNavigation";
 
 function twoPaneLayout(): SplitLayout {
@@ -55,6 +56,40 @@ describe("mixed page navigation", () => {
       findPaneByContent(after.root, { kind: "new-thread" })?.paneId,
     );
     expect(focusedPaneRoute(after)).toBe("/");
+  });
+
+  it("opens the root composer beside a restored layout instead of over its focused pane", () => {
+    const restored = twoPaneLayout();
+
+    const after = reconcileLayoutForContentOnLoad(restored, {
+      kind: "new-thread",
+    });
+
+    expect(listPanes(after.root)).toHaveLength(3);
+    expect(
+      listPanes(after.root).filter((pane) => pane.content.kind === "thread"),
+    ).toHaveLength(2);
+    expect(after.focusedPaneId).toBe(
+      findPaneByContent(after.root, { kind: "new-thread" })?.paneId,
+    );
+    // Rightmost pane, whichever pane was focused when the layout was saved.
+    const order = listPanes(after.root).map((pane) => pane.content.kind);
+    expect(order).toEqual(["thread", "thread", "new-thread"]);
+  });
+
+  it("keeps the usual replace rule on load for content other than the composer", () => {
+    const restored = twoPaneLayout();
+    const plugin = {
+      kind: "plugin-panel",
+      pluginId: "notes",
+      panelPath: "notes",
+      subPath: "",
+    } as const;
+
+    const after = reconcileLayoutForContentOnLoad(restored, plugin);
+
+    expect(listPanes(after.root)).toHaveLength(2);
+    expect(findPaneByContent(after.root, plugin)).not.toBeNull();
   });
 
   it("updates a plugin pane's subpath without duplicating the panel", () => {

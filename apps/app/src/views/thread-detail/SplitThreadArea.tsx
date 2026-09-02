@@ -96,6 +96,7 @@ import {
   focusedPaneRoute,
   paneContentRoute,
   reconcileLayoutForContent,
+  reconcileLayoutForContentOnLoad,
   threadPaneContent,
 } from "./splitThreadNavigation";
 import { ThreadDetailWorkerPoolProvider } from "./ThreadDetailWorkerPoolProvider";
@@ -280,12 +281,19 @@ function SplitThreadAreaContent({ routeContent }: SplitThreadAreaProps) {
     [routeContent, routeThread],
   );
 
+  // The first reconcile after mount meets the layout restored from storage;
+  // it must not close a restored pane to make room for the root composer.
+  const hasReconciledOnceRef = useRef(false);
   useEffect(() => {
     if (currentContent === null) {
       return;
     }
+    const isInitialReconcile = !hasReconciledOnceRef.current;
+    hasReconciledOnceRef.current = true;
     setLayout((previous) =>
-      reconcileLayoutForContent(previous, currentContent),
+      isInitialReconcile
+        ? reconcileLayoutForContentOnLoad(previous, currentContent)
+        : reconcileLayoutForContent(previous, currentContent),
     );
   }, [currentContent, setLayout]);
 
