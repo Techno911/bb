@@ -762,8 +762,21 @@ const electronMock = vi.hoisted(() => {
     public readonly willDownloadListeners: FakeSessionListener[] = [];
     public permissionCheckHandler: FakePermissionCheckHandler | null = null;
     public permissionRequestHandler: FakePermissionRequestHandler | null = null;
+    public userAgent =
+      "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) bb/0.41.0 Chrome/142.0.0.0 Electron/40.0.0 Safari/537.36";
+    public readonly cookies = {
+      set: async (): Promise<void> => {},
+    };
     on(eventName: "will-download", listener: FakeSessionListener): void {
       this.willDownloadListeners.push(listener);
+    }
+
+    getUserAgent(): string {
+      return this.userAgent;
+    }
+
+    setUserAgent(userAgent: string): void {
+      this.userAgent = userAgent;
     }
 
     setPermissionCheckHandler(handler: FakePermissionCheckHandler): void {
@@ -3716,6 +3729,34 @@ describe("DesktopBrowserViewManager", () => {
     });
     expect(electronMock.fakeViews).toHaveLength(2);
     expect(reloadingView.visible).toBe(true);
+  });
+
+  it("presents the browser session as plain Chrome, not as an embedded shell", () => {
+    // Google refuses sign-in from a user agent that names an embedded shell,
+    // so a page opened here would be stuck on its login form for good.
+    const manager = createDesktopBrowserViewManager({
+      partition: "persist:user-agent",
+    });
+    const hostWindow = new FakeHostWindow({
+      contentBounds: { width: 700, height: 450 },
+      webContentsId: 91,
+    });
+    attachBrowserTab({
+      manager,
+      hostWindow,
+      tabId: "browser:ua",
+      url: "https://example.com/",
+    });
+
+    const fakeSession = electronMock.fakeSessions.at(-1);
+    if (fakeSession === undefined) {
+      throw new Error("Expected a browser session to be created.");
+    }
+    expect(fakeSession.getUserAgent()).not.toContain("Electron/");
+    expect(fakeSession.getUserAgent()).not.toContain("bb/");
+    expect(fakeSession.getUserAgent()).toContain("Chrome/");
+
+    manager.destroyAll();
   });
 
   it("allows clipboard-sanitized-write but denies clipboard-read and device permissions", () => {
