@@ -129,6 +129,7 @@ import {
 } from "./mentions/MentionMenu";
 import { parsePromptMentionClipboardElement } from "./mentions/prompt-mention-clipboard";
 import { ComposerEditorSlot } from "./ComposerEditorSlot";
+import type { CollapsedModelSummary } from "./FollowUpPromptBox";
 import { QueuedEditorTypeaheadLayoutContext } from "./queued-editor-typeahead-layout";
 
 const PROMPTBOX_MIN_HEIGHT = 68;
@@ -397,6 +398,7 @@ interface PromptBoxInternalProps {
   onCollapse?: () => void;
   compact?: PromptBoxCompactConfig;
   containerCompactPlaceholder?: string;
+  collapsedModelSummary?: CollapsedModelSummary;
   heightAnimationKey?: string | number;
   history?: HistoryConfig;
   voice?: PromptVoiceConfig;
@@ -1119,6 +1121,7 @@ export function PromptBoxInternal({
   editorLayout = "thread",
   onCollapse,
   compact,
+  collapsedModelSummary,
   containerCompactPlaceholder,
   heightAnimationKey,
   history,
@@ -1359,6 +1362,20 @@ export function PromptBoxInternal({
   }, []);
   const showCompactLayout =
     compact?.isCompact === true && !showVoiceActionGroup;
+  // Модель занимает место свёрнутого плейсхолдера, только пока человек ничего
+  // не набрал: как только в поле появился текст, показывать надо текст.
+  const showCollapsedModelSummary =
+    showCompactLayout &&
+    collapsedModelSummary !== undefined &&
+    value.trim().length === 0;
+  const collapsedSummaryNode = showCollapsedModelSummary ? (
+    <span className="flex min-w-0 items-center gap-2 text-subtle-foreground">
+      {collapsedModelSummary.Icon ? (
+        <collapsedModelSummary.Icon className="size-3.5 shrink-0" />
+      ) : null}
+      <span className="truncate">{collapsedModelSummary.label}</span>
+    </span>
+  ) : undefined;
   const effectivePlaceholder = showCompactLayout
     ? (compact.placeholder ?? placeholder)
     : placeholder;
@@ -2980,6 +2997,9 @@ export function PromptBoxInternal({
       ref={formRef}
       data-promptbox=""
       data-promptbox-compact={showCompactLayout ? "" : undefined}
+      data-promptbox-collapsed-summary={
+        showCollapsedModelSummary ? "" : undefined
+      }
       data-promptbox-voice-active={showVoiceActionGroup ? "" : undefined}
       onSubmit={handleSubmit}
       onMouseDown={handlePromptBoxMouseDown}
@@ -3077,6 +3097,7 @@ export function PromptBoxInternal({
               minHeight={minHeight}
               layout={editorLayout}
               resolveMentionLink={mentionResolveLink}
+              collapsedSummary={collapsedSummaryNode}
             />
           </div>
 

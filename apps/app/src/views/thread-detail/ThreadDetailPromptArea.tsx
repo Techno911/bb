@@ -106,6 +106,10 @@ import {
   type PromptDraftState,
 } from "@bb/client-core";
 import {
+  collapsedComposerModelLabel,
+  shouldShowModelInCollapsedComposer,
+} from "@/components/promptbox/collapsed-composer-summary";
+import {
   FollowUpPromptBox,
   type FollowUpComposerProps,
   type FollowUpPromptBoxProps,
@@ -737,6 +741,40 @@ export function ThreadDetailPromptArea({
   const compactPromptPlaceholder = isStopRequested
     ? "Stopping thread..."
     : getCompactFollowUpPromptPlaceholder(runtimeDisplayStatus);
+  // The collapsed line of an unfocused pane says which model works in this
+  // thread instead of repeating "Ask a follow-up", which told the reader
+  // nothing. Label and icon come from the same options the expanded picker
+  // renders, so the two cannot name the same model differently.
+  const collapsedModelSummary = useMemo(() => {
+    const label = collapsedComposerModelLabel({
+      modelValue: effectiveSelectedModel,
+      modelOptions,
+      brandPrefix: providerOptions.find(
+        (option) => option.value === selectedProviderId,
+      )?.brandPrefix,
+    });
+    if (
+      !shouldShowModelInCollapsedComposer({
+        displayStatus: runtimeDisplayStatus,
+        isStopRequested,
+        modelLabel: label,
+      }) ||
+      label === undefined
+    ) {
+      return undefined;
+    }
+    const Icon = providerOptions.find(
+      (option) => option.value === selectedProviderId,
+    )?.icon;
+    return Icon === undefined ? { label } : { label, Icon };
+  }, [
+    effectiveSelectedModel,
+    isStopRequested,
+    modelOptions,
+    providerOptions,
+    runtimeDisplayStatus,
+    selectedProviderId,
+  ]);
   const submitScheduledRef = useRef<
     (options: { sendAt: number }) => Promise<void>
   >(async () => {});
@@ -1062,6 +1100,7 @@ export function ThreadDetailPromptArea({
       onModifierSubmit: handleBottomComposerModifierSubmit,
       onSubmit: handleBottomComposerSubmit,
       compactPromptPlaceholder,
+      collapsedModelSummary,
       promptPlaceholder,
       canModifierSubmit: canSubmitModifierShortcut,
       steerActiveThreadOnEnter,
@@ -1070,6 +1109,7 @@ export function ThreadDetailPromptArea({
     }),
     [
       canSubmitModifierShortcut,
+      collapsedModelSummary,
       compactPromptPlaceholder,
       currentPromptDraft,
       handleBottomComposerModifierSubmit,

@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import { EditorContent, type Editor } from "@tiptap/react";
 import { COARSE_POINTER_TEXT_BASE_CLASS } from "@bb/shared-ui/coarse-pointer-sizing";
 import { cn } from "@bb/shared-ui/lib/utils";
@@ -30,6 +30,7 @@ export function ComposerEditorSlot({
   minHeight,
   layout,
   resolveMentionLink,
+  collapsedSummary,
 }: {
   editor: Editor | null;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
@@ -38,6 +39,13 @@ export function ComposerEditorSlot({
   minHeight: number;
   layout: ComposerEditorLayout;
   resolveMentionLink: PromptMentionLinkResolver | undefined;
+  /**
+   * Sits where the collapsed placeholder text would be. The placeholder is a
+   * CSS `content` on a pseudo-element, which cannot hold an icon, so the model
+   * summary is a real node laid over that spot; the pseudo-element is switched
+   * off from app.css while it is shown.
+   */
+  collapsedSummary?: ReactNode;
 }) {
   return (
     <div
@@ -48,7 +56,7 @@ export function ComposerEditorSlot({
         "w-full overflow-y-auto bg-transparent px-4 pb-1 pr-14 pt-3 outline-none",
         COARSE_POINTER_TEXT_BASE_CLASS,
         "leading-relaxed",
-        isCompactLayout && "h-12 overflow-hidden pb-0 pr-14 pt-0",
+        isCompactLayout && "relative h-12 overflow-hidden pb-0 pr-14 pt-0",
       )}
       style={{
         minHeight: isCompactLayout ? "48px" : `${minHeight}px`,
@@ -58,6 +66,15 @@ export function ComposerEditorSlot({
           : COMPOSER_EDITOR_MAX_HEIGHT_BY_LAYOUT[layout],
       }}
     >
+      {collapsedSummary === undefined ? null : (
+        <div
+          data-promptbox-collapsed-summary=""
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 left-4 right-14 flex items-center"
+        >
+          {collapsedSummary}
+        </div>
+      )}
       <PromptMentionLinkContext.Provider value={resolveMentionLink ?? null}>
         <EditorContent
           editor={editor}

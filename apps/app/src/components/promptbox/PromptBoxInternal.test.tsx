@@ -4251,3 +4251,78 @@ describe("voice recording escape", () => {
     expect(cancel).not.toHaveBeenCalled();
   });
 });
+
+describe("collapsed pane shows the thread's model", () => {
+  function ProviderMark({ className }: { className?: string }) {
+    return <span className={className} data-testid="provider-mark" />;
+  }
+
+  function collapsedProps(overrides: Record<string, unknown> = {}) {
+    return createPromptBoxProps({
+      compact: { isCompact: true, placeholder: "Ask a follow-up" },
+      ...overrides,
+    });
+  }
+
+  it("puts the model and its provider mark on the collapsed line", () => {
+    render(
+      <PromptBoxInternal
+        {...collapsedProps()}
+        collapsedModelSummary={{ label: "Opus 5 1M", Icon: ProviderMark }}
+      />,
+    );
+
+    expect(screen.getByText("Opus 5 1M")).toBeTruthy();
+    expect(screen.getByTestId("provider-mark")).toBeTruthy();
+  });
+
+  it("marks the form so the placeholder pseudo-element stays silent", () => {
+    // Both would otherwise print in the same spot: the placeholder is a CSS
+    // `content`, the model is a node laid over it.
+    render(
+      <PromptBoxInternal
+        {...collapsedProps()}
+        collapsedModelSummary={{ label: "Opus 5 1M" }}
+      />,
+    );
+
+    const form = document.querySelector("[data-promptbox]");
+    expect(form?.hasAttribute("data-promptbox-collapsed-summary")).toBe(true);
+  });
+
+  it("leaves the placeholder alone when no model summary is given", () => {
+    render(<PromptBoxInternal {...collapsedProps()} />);
+
+    const form = document.querySelector("[data-promptbox]");
+    expect(form?.hasAttribute("data-promptbox-collapsed-summary")).toBe(false);
+    expect(
+      document.querySelector("[data-promptbox-collapsed-summary]"),
+    ).toBeNull();
+  });
+
+  it("gives the line back as soon as a draft is typed", () => {
+    render(
+      <PromptBoxInternal
+        {...collapsedProps({ value: "half-written question" })}
+        collapsedModelSummary={{ label: "Opus 5 1M" }}
+      />,
+    );
+
+    expect(
+      document.querySelector("[data-promptbox-collapsed-summary]"),
+    ).toBeNull();
+  });
+
+  it("does not show the model while the composer is expanded", () => {
+    render(
+      <PromptBoxInternal
+        {...createPromptBoxProps()}
+        collapsedModelSummary={{ label: "Opus 5 1M" }}
+      />,
+    );
+
+    expect(
+      document.querySelector("[data-promptbox-collapsed-summary]"),
+    ).toBeNull();
+  });
+});

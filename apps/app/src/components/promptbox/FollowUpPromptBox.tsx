@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type ComponentProps,
+  type ComponentType,
   type FocusEvent as ReactFocusEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -129,6 +130,11 @@ export type {
   FollowUpSubmitMode,
 } from "@bb/client-core";
 
+export interface CollapsedModelSummary {
+  label: string;
+  Icon?: ComponentType<{ className?: string }>;
+}
+
 export interface FollowUpComposerProps {
   history: HistoryConfig;
   isFollowUpSubmitting: boolean;
@@ -140,6 +146,12 @@ export interface FollowUpComposerProps {
   onEscape?: () => void;
   submitTitle?: string;
   compactPromptPlaceholder: string;
+  /**
+   * Model of this thread, shown on the collapsed line of a pane the user is
+   * not in. Absent while the thread cannot take a message: the status text is
+   * the more useful thing to read then.
+   */
+  collapsedModelSummary?: CollapsedModelSummary;
   promptPlaceholder: string;
   canModifierSubmit: boolean;
   steerActiveThreadOnEnter: boolean;
@@ -721,6 +733,7 @@ function FollowUpPromptBoxWithComposer({
         focusEndKey={focusEndKey}
         placeholder={composer.promptPlaceholder}
         containerCompactPlaceholder={composer.compactPromptPlaceholder}
+        collapsedModelSummary={composer.collapsedModelSummary}
         heightAnimationKey={isInteractionExpanded ? "expanded" : "compact"}
         mentionMenuPlacement="top"
         submission={{
