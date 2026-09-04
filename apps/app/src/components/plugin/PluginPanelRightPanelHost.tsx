@@ -71,9 +71,7 @@ import {
 } from "@/lib/bb-desktop";
 import { getBrowserUrlHost } from "@/lib/browser-url";
 import { isRoutePath } from "@/lib/route-paths";
-import { requiresSignedInBrowser } from "@/lib/in-app-browser-link-preference";
 import {
-  openUrlInExternalBrowser,
   UrlOpenRoutingProvider,
 } from "@/lib/url-open-routing";
 import { usePluginSlots } from "@/lib/plugin-slots";
@@ -624,12 +622,6 @@ export function PluginPanelRightPanelHost({
 
   const openBrowser = useCallback(
     (url = "") => {
-      // A page the user can only use while signed in belongs in their own
-      // browser: the in-app browser has its own session and opens it signed out.
-      if (requiresSignedInBrowser(url)) {
-        openUrlInExternalBrowser(url);
-        return;
-      }
       if (!isDesktopBrowserAvailable()) return;
       selectPersistedPanelTab();
       openTab({ kind: "browser", url });

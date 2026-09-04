@@ -24,34 +24,6 @@ export function isHttpOrHttpsUrl(url: string): boolean {
   return HTTP_URL_SCHEME_PATTERN.test(url);
 }
 
-// Services people work in under their own account. The in-app browser keeps its
-// own Electron session, so such a link opens signed out there and cannot be
-// edited; the default browser already carries the signed-in session. Add a host
-// here when a service is only usable while signed in.
-const SIGNED_IN_SERVICE_HOSTS = [
-  "google.com",
-  "googleusercontent.com",
-  "notion.so",
-  "figma.com",
-  "miro.com",
-  "fireflies.ai",
-];
-
-export function requiresSignedInBrowser(url: string): boolean {
-  if (!isHttpOrHttpsUrl(url)) {
-    return false;
-  }
-  let hostname: string;
-  try {
-    hostname = new URL(url).hostname.toLowerCase();
-  } catch {
-    return false;
-  }
-  return SIGNED_IN_SERVICE_HOSTS.some(
-    (host) => hostname === host || hostname.endsWith(`.${host}`),
-  );
-}
-
 export function resolveUrlOpenTarget({
   desktopBrowserAvailable,
   openLinksInAppBrowser,
@@ -59,9 +31,6 @@ export function resolveUrlOpenTarget({
 }: ResolveUrlOpenTargetArgs): UrlOpenTarget {
   if (!isHttpOrHttpsUrl(url)) {
     return "unhandled";
-  }
-  if (requiresSignedInBrowser(url)) {
-    return "external-browser";
   }
   if (desktopBrowserAvailable && openLinksInAppBrowser) {
     return "in-app-browser";

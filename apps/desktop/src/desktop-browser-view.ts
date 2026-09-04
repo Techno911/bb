@@ -11,7 +11,12 @@ import {
   type WebPreferences,
 } from "electron";
 import {
+  createSignedInSessionKeeper,
+  type SignedInSessionKeeper,
+} from "./signed-in-session.js";
+import {
   BB_DESKTOP_BROWSER_MAX_TITLE_LENGTH,
+  signedInServiceHostFor,
   BB_DESKTOP_BROWSER_MAX_URL_LENGTH,
   clampBbDesktopBrowserViewBounds,
   type BbDesktopBrowserAttachRequest,
@@ -382,6 +387,7 @@ export function createDesktopBrowserViewManager(
   args: CreateDesktopBrowserViewManagerArgs,
 ): DesktopBrowserViewManager {
   const partition = args.partition ?? BB_BROWSER_PARTITION;
+  let signedInKeeper: SignedInSessionKeeper | null = null;
   const entries = new Map<string, BrowserViewEntry>();
   const entriesByWebContentsId = new Map<number, BrowserViewEntry>();
   const automationTabListeners = new Set<() => void>();
@@ -497,6 +503,21 @@ export function createDesktopBrowserViewManager(
       return existing;
     }
     const browserSession = session.fromPartition(tabPartition);
+    // Google refuses sign-in from a user agent that names an embedded shell,
+    // and other services fall back to a degraded page for one they do not
+    // recognise. The Chromium this window really runs stays in the string, the
+    // Electron and bb segments are dropped.
+    browserSession.setUserAgent(
+      browserSession
+        .getUserAgent()
+        .replace(/\s*Electron\/\S+/u, "")
+        .replace(/\s*bb\/\S+/u, ""),
+    );
+    // Automation profiles get their own partitions and must stay signed out of
+    // the user's accounts; only the personal session carries their sign-in.
+    if (tabPartition === partition) {
+      signedInKeeper = createSignedInSessionKeeper({ session: browserSession });
+    }
     browserSession.setPermissionRequestHandler((_wc, permission, callback) => {
       callback(isAllowedBrowserPermission(permission));
     });
@@ -823,7 +844,20 @@ export function createDesktopBrowserViewManager(
       return;
     }
     entry.lastErrorText = null;
-    entry.view.webContents.loadURL(url).catch(() => {});
+    // A link to a service the user works in under their own account opens on a
+    // login form unless this session carries their sign-in, and inside an
+    // embedded browser that form cannot be completed. The session is topped up
+    // from the browser they are already signed in with before the tab loads.
+    if (signedInServiceHostFor(url) === null || signedInKeeper === null) {
+      entry.view.webContents.loadURL(url).catch(() => {});
+      return;
+    }
+    void signedInKeeper.ensureFresh().finally(() => {
+      if (entry.view.webContents.isDestroyed()) {
+        return;
+      }
+      entry.view.webContents.loadURL(url).catch(() => {});
+    });
   }
 
   function destroyEntry(
