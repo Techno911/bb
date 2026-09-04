@@ -214,3 +214,20 @@ describe("in-app browser tabs", () => {
     expect(source).toMatch(/replace\(\/\\s\*Electron/u);
   });
 });
+
+describe("Google country domains", () => {
+  it("carries the session over from the country domain the user was sent to", () => {
+    // Signing in from Russia leaves SID and SAPISID on google.ru while
+    // google.com holds only preferences: matching one spelling would carry
+    // everything except the sign-in itself.
+    const rows = [
+      row({ host_key: ".google.ru" }),
+      row({ host_key: "accounts.google.co.uk" }),
+      row({ host_key: "google.ru.phish.example" }),
+    ];
+    expect(selectServiceRows(rows).map((entry) => entry.host_key)).toEqual([
+      ".google.ru",
+      "accounts.google.co.uk",
+    ]);
+  });
+});
