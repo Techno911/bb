@@ -131,6 +131,13 @@ export async function executeAgentRun(
         environment: args.execution.environment,
         prompt: args.execution.prompt,
         title: args.automation.name,
+        // An automation set up from inside a thread is that thread's work
+        // continuing on a schedule, so its runs belong under it in the
+        // sidebar. Without this the runs pile up as siblings and the thread
+        // they came from cannot be collapsed over them.
+        ...(args.automation.createdByThreadId === null
+          ? {}
+          : { parentThreadId: args.automation.createdByThreadId }),
         providerId: args.execution.providerId,
         model: args.execution.model,
         reasoningLevel: args.execution.reasoningLevel,
