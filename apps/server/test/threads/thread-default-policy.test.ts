@@ -221,6 +221,73 @@ describe("resolveCreateThreadEnvironment", () => {
     });
   });
 
+  it("shares a plain-folder parent environment instead of a worktree", () => {
+    expect(
+      resolveCreateThreadEnvironment({
+        parentEnvironment: {
+          id: "env-parent-1",
+          isGitRepo: false,
+          projectId: "proj-1",
+          workspaceProvisionType: "unmanaged",
+        },
+        parentThread: makeParentThread(),
+        projectId: "proj-1",
+        requestedEnvironment: {
+          type: "host",
+          hostId: "host-1",
+          workspace: { type: "unmanaged", path: null },
+        },
+      }),
+    ).toEqual({ type: "reuse", environmentId: "env-parent-1" });
+  });
+
+  it.each([
+    {
+      name: "the parent folder is a git checkout",
+      parentEnvironment: {
+        id: "env-parent-1",
+        isGitRepo: true,
+        projectId: "proj-1",
+        workspaceProvisionType: "unmanaged" as const,
+      },
+    },
+    {
+      name: "the parent environment belongs to another project",
+      parentEnvironment: {
+        id: "env-parent-1",
+        isGitRepo: false,
+        projectId: "proj-2",
+        workspaceProvisionType: "unmanaged" as const,
+      },
+    },
+    {
+      name: "the parent environment is not the parent thread's one",
+      parentEnvironment: {
+        id: "env-other",
+        isGitRepo: false,
+        projectId: "proj-1",
+        workspaceProvisionType: "unmanaged" as const,
+      },
+    },
+  ])("still provisions a worktree when $name", ({ parentEnvironment }) => {
+    expect(
+      resolveCreateThreadEnvironment({
+        parentEnvironment,
+        parentThread: makeParentThread(),
+        projectId: "proj-1",
+        requestedEnvironment: {
+          type: "host",
+          hostId: "host-1",
+          workspace: { type: "unmanaged", path: null },
+        },
+      }),
+    ).toEqual({
+      type: "host",
+      hostId: "host-1",
+      workspace: { type: "managed-worktree", baseBranch: { kind: "default" } },
+    });
+  });
+
   it("keeps explicit same-environment reuse for child threads", () => {
     expect(
       resolveCreateThreadEnvironment({

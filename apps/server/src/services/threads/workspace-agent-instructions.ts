@@ -72,6 +72,19 @@ export async function readWorkspaceAgentInstructions(
     if (error instanceof ApiError && error.body.code === "ENOENT") {
       return null;
     }
+    // A file the host cannot read (EPERM from macOS privacy protection,
+    // EACCES, EISDIR, ...) must not stop the thread: the instructions are an
+    // addition to the turn, not a precondition for it. 06.09.2026: every
+    // message queued into a folder under Desktop failed to dispatch because
+    // the host daemon was denied reading .bb/AGENTS.md. Host outages keep
+    // their own codes and still propagate.
+    if (error instanceof ApiError && /^E[A-Z0-9]+$/.test(error.body.code)) {
+      deps.logger.warn(
+        { filePath, reason: error.message, code: error.body.code },
+        "Skipping unreadable workspace agent instructions file",
+      );
+      return null;
+    }
     throw error;
   }
 

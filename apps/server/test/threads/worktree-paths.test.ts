@@ -19,6 +19,11 @@ describe("deriveRepoDirName", () => {
       "Hello-World",
     ],
     ["dotted name", "/Users/me/code/my.repo", "my.repo"],
+    [
+      "Cyrillic name",
+      "/Users/me/Desktop/Чирков-и-партнеры",
+      "Чирков-и-партнеры",
+    ],
   ])("derives %s", (_label, input, expected) => {
     expect(deriveRepoDirName(input)).toBe(expected);
   });

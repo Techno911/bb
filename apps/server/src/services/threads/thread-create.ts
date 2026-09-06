@@ -527,6 +527,14 @@ async function createPendingThreadAndAttemptFirstDispatch(
   return getThreadSafe(deps, thread.id);
 }
 
+function resolveParentEnvironmentForCreate(
+  deps: Pick<ThreadCreateDeps, "db">,
+  args: { parentThread: Pick<Thread, "environmentId"> | null },
+) {
+  const environmentId = args.parentThread?.environmentId ?? null;
+  return environmentId === null ? null : getEnvironment(deps.db, environmentId);
+}
+
 interface ResolveCreateThreadVisibilityArgs {
   parentThread: Pick<Thread, "visibility"> | null;
   requestedVisibility: ThreadVisibility | undefined;
@@ -700,6 +708,12 @@ export async function createThreadFromRequest(
       requestedVisibility: requestInput.visibility,
     }),
     environment: resolveCreateThreadEnvironment({
+      parentEnvironment: resolveParentEnvironmentForCreate(deps, {
+        parentThread:
+          forkSourceEnvironmentId !== undefined
+            ? null
+            : (sourceThread ?? parentThread),
+      }),
       parentThread:
         forkSourceEnvironmentId !== undefined
           ? null

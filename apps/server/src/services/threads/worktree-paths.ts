@@ -1,7 +1,10 @@
 import path from "node:path";
 import { ApiError } from "../../errors.js";
 
-const REPO_DIR_NAME_PATTERN = /^[A-Za-z0-9._][A-Za-z0-9._-]*$/;
+// Letters of any script are allowed: repositories on this machine live in
+// folders with Cyrillic names, and a name git and the file system accept is a
+// valid worktree directory name.
+const REPO_DIR_NAME_PATTERN = /^[\p{L}\p{N}._][\p{L}\p{N}._-]*$/u;
 
 export function deriveRepoDirName(sourcePath: string): string {
   const trimmed = sourcePath.replace(/\/+$/, "");

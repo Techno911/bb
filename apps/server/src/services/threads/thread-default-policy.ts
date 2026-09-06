@@ -1,4 +1,5 @@
 import type {
+  Environment,
   PermissionMode,
   ProjectExecutionDefaults,
   RecordedPermissionMode,
@@ -76,7 +77,13 @@ interface ResolveThreadExecutionPermissionModeArgs {
   >;
 }
 
+type ParentEnvironment = Pick<
+  Environment,
+  "id" | "isGitRepo" | "projectId" | "workspaceProvisionType"
+>;
+
 interface ResolveCreateThreadEnvironmentArgs {
+  parentEnvironment?: ParentEnvironment | null;
   parentThread?: ParentThread | null;
   projectId: string;
   requestedEnvironment: EnvironmentArgs;
@@ -263,6 +270,22 @@ export function resolveCreateThreadEnvironment(
     hasLiveParent &&
     isImplicitHostDefaultEnvironment(args.requestedEnvironment)
   ) {
+    // A managed worktree needs a git checkout. When the parent runs straight
+    // in a plain folder of the same project (no repository under it), a child
+    // has nothing to branch from: provisioning would fail before the first
+    // turn (06.09.2026: second opinion in a non-git, Cyrillic-named folder
+    // died with "Cannot derive repository directory name"). The child then
+    // shares the parent's folder, exactly as the parent itself does.
+    const parentEnvironment = args.parentEnvironment ?? null;
+    if (
+      parentEnvironment !== null &&
+      parentThread?.environmentId === parentEnvironment.id &&
+      parentEnvironment.projectId === args.projectId &&
+      parentEnvironment.workspaceProvisionType === "unmanaged" &&
+      !parentEnvironment.isGitRepo
+    ) {
+      return { type: "reuse", environmentId: parentEnvironment.id };
+    }
     return {
       type: "host",
       hostId: requireHostEnvironmentId(args.requestedEnvironment),
