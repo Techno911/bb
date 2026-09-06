@@ -1,0 +1,32 @@
+{
+  "name": "bb-plugin-pair-review",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Второй мозг: независимый проверяющий другого семейства для задач, где ошибка дорога.",
+  "engines": {
+    "bb": ">=0.0"
+  },
+  "bb": {
+    "name": "Второй мозг",
+    "description": "Автоматически ставит независимого проверяющего другого семейства на задачи, где ошибка стоит денег, доверия или отката.",
+    "branding": {
+      "icon": "UsersRound"
+    },
+    "server": "./server.ts"
+  },
+  "keywords": [
+    "bb-plugin"
+  ],
+  "scripts": {
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "workspace:*",
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.1"
+  },
+  "dependencies": {}
+}
