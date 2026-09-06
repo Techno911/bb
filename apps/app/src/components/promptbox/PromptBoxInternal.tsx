@@ -1376,9 +1376,15 @@ export function PromptBoxInternal({
       <span className="truncate">{collapsedModelSummary.label}</span>
     </span>
   ) : undefined;
-  const effectivePlaceholder = showCompactLayout
-    ? (compact.placeholder ?? placeholder)
-    : placeholder;
+  // Плейсхолдер и метка модели занимают одну и ту же строку, поэтому вместе они
+  // печатаются друг поверх друга. Гасить псевдоэлемент из CSS оказалось
+  // ненадёжно (правил, задающих ему content, несколько), и человек видел кашу
+  // из наложенных надписей. Пока метка на экране, плейсхолдера просто нет.
+  const effectivePlaceholder = showCollapsedModelSummary
+    ? ""
+    : showCompactLayout
+      ? (compact.placeholder ?? placeholder)
+      : placeholder;
   const pluginComposerHost = usePluginComposerHost();
   const composerInputLocked = useComposerInputLock(
     pluginComposerHost?.textEffectKey ?? null,

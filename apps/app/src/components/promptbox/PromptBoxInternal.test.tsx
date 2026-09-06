@@ -4276,9 +4276,10 @@ describe("collapsed pane shows the thread's model", () => {
     expect(screen.getByTestId("provider-mark")).toBeTruthy();
   });
 
-  it("marks the form so the placeholder pseudo-element stays silent", () => {
-    // Both would otherwise print in the same spot: the placeholder is a CSS
-    // `content`, the model is a node laid over it.
+  it("leaves no placeholder text under the model line", () => {
+    // Both print in the same spot, so together they overlap into unreadable
+    // mush. The earlier version of this test only checked the marker attribute
+    // on the form and passed while the placeholder kept printing underneath.
     render(
       <PromptBoxInternal
         {...collapsedProps()}
@@ -4288,6 +4289,15 @@ describe("collapsed pane shows the thread's model", () => {
 
     const form = document.querySelector("[data-promptbox]");
     expect(form?.hasAttribute("data-promptbox-collapsed-summary")).toBe(true);
+    const editor = document.querySelector("[data-promptbox-editor-content] .ProseMirror");
+    expect(editor?.getAttribute("data-placeholder")).toBe("");
+  });
+
+  it("keeps the compact placeholder when there is no model line", () => {
+    render(<PromptBoxInternal {...collapsedProps()} />);
+
+    const editor = document.querySelector("[data-promptbox-editor-content] .ProseMirror");
+    expect(editor?.getAttribute("data-placeholder")).toBe("Ask a follow-up");
   });
 
   it("leaves the placeholder alone when no model summary is given", () => {

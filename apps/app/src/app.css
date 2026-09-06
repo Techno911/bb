@@ -605,19 +605,6 @@
     content: var(--promptbox-container-compact-placeholder);
   }
 
-  /*
-   * The collapsed line of an unfocused pane shows the thread's model as a real
-   * node (it carries the provider icon, which a CSS `content` cannot). The
-   * placeholder pseudo-element would print its text underneath it, so it is
-   * switched off exactly while that node is on screen.
-   */
-  [data-follow-up-composer]:not([data-follow-up-composer-expanded])
-    [data-promptbox][data-promptbox-collapsed-summary]
-    [data-promptbox-editor-content]
-    .ProseMirror
-    p.is-editor-empty:first-child::before {
-    content: "";
-  }
 }
 
 @layer base {
