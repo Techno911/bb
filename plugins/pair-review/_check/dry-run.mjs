@@ -11,6 +11,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { classifyTask } from "../classify.ts";
+// Ту же функцию, что работает в плагине: иначе измеритель разойдётся с
+// измеряемым и покажет не то, что случится на самом деле.
+import { значимыйЗапрос } from "../human-turns.ts";
 
 const бд = new DatabaseSync(join(homedir(), ".bb", "bb.db"), { readOnly: true });
 
@@ -32,8 +35,9 @@ const запросы = бд.prepare(
     order by sequence desc limit 40`,
 );
 
-/** Последний запрос ЧЕЛОВЕКА: не spawn от другого треда и не системное. */
-function последнийЗапросЧеловека(threadId) {
+/** Запросы ЧЕЛОВЕКА: не spawn от другого треда и не системное. */
+function запросыЧеловекаИзБазы(threadId) {
+  const найденные = [];
   for (const строка of запросы.all(threadId)) {
     let j;
     try {
@@ -49,9 +53,10 @@ function последнийЗапросЧеловека(threadId) {
       .map((ч) => ч.text ?? "")
       .join("\n")
       .trim();
-    if (текст.length > 0) return текст;
+    if (текст.length > 0) найденные.push(текст);
   }
-  return null;
+  // Запросы шли от свежих к старым: возвращаем в порядке разговора.
+  return найденные.reverse();
 }
 
 const поКлассам = new Map();
@@ -60,8 +65,8 @@ let проверок = 0;
 const примеры = [];
 
 for (const т of треды) {
-  const задача = последнийЗапросЧеловека(т.id);
-  if (задача === null) continue;
+  const задача = значимыйЗапрос(запросыЧеловекаИзБазы(т.id));
+  if (задача === undefined) continue;
   сзапросом += 1;
   const решение = classifyTask({
     prompt: задача,
