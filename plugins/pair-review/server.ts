@@ -2,7 +2,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 
 import {
   classifyTask,
-  проверятьРано,
+  запускатьВМомент,
   verifierFor,
   type PairDecision,
 } from "./classify.js";
@@ -292,6 +292,67 @@ function подождать(мс: number, signal: AbortSignal): Promise<void> {
 export default async function plugin(bb: BbPluginApi) {
   const хранилище = bb.storage.kv;
 
+  /**
+   * Единственная дверь для запуска проверяющего.
+   *
+   * Оба места (первый раунд и второй) идут через неё, потому что проверка
+   * бюджета рядом с вызовом spawn держится только на внимательности: 07.09.2026
+   * второй раунд списывал слот ПОСЛЕ запуска и предел не смотрел вовсе, так что
+   * шесть двухраундовых задач поднимали двенадцать проверяющих. Здесь порядок
+   * задан конструкцией: сначала предел, потом запуск, потом списание.
+   */
+  async function спавнитьПроверяющего(args: {
+    thread: { id: string; projectId: string; environmentId: string | null };
+    taskClass: string;
+    задача: string;
+    заголовок: string;
+    задание: string;
+    provider: string;
+    model?: string;
+    reasoningLevel?: "medium" | "high" | "xhigh";
+    round: number;
+    maxRounds: number;
+  }): Promise<{ id: string } | null> {
+    const бюджет = await хранилище.get<Бюджет>(КЛЮЧ_БЮДЖЕТА);
+    if (!бюджетПозволяет(бюджет, Date.now(), БЮДЖЕТ_В_СУТКИ, args.taskClass)) {
+      await записатьВЖурнал(
+        args.thread.id,
+        args.задача,
+        args.taskClass,
+        "бюджет",
+        args.round > 1
+          ? `второй раунд отложен: суточный бюджет класса ${args.taskClass} выбран`
+          : "суточный бюджет этого класса выбран, вернусь завтра",
+      );
+      return null;
+    }
+    const ребёнок = await bb.sdk.threads.spawn({
+      projectId: args.thread.projectId,
+      environment:
+        args.thread.environmentId === null
+          ? { type: "project-default" }
+          : { type: "reuse", environmentId: args.thread.environmentId },
+      parentThreadId: args.thread.id,
+      title: args.заголовок,
+      prompt: args.задание,
+      providerId: args.provider,
+      ...(args.model === undefined ? {} : { model: args.model }),
+      ...(args.reasoningLevel === undefined
+        ? {}
+        : { reasoningLevel: args.reasoningLevel }),
+    });
+    await хранилище.set(КЛЮЧ_БЮДЖЕТА, следующийБюджет(бюджет));
+    await хранилище.set(`${КЛЮЧ_ПРОВЕРКИ}${ребёнок.id}`, {
+      parentThreadId: args.thread.id,
+      taskClass: args.taskClass,
+      задача: args.задача,
+      round: args.round,
+      maxRounds: args.maxRounds,
+      startedAt: Date.now(),
+    } satisfies Проверка);
+    return ребёнок;
+  }
+
   async function записатьВЖурнал(
     threadId: string,
     задача: string,
@@ -336,9 +397,10 @@ export default async function plugin(bb: BbPluginApi) {
     // жизнь, а дальше молчал бы навсегда — при том что работа в нём идёт
     // каждый день. И наоборот, без счётчика проверка запускалась бы после
     // каждого хода агента внутри одной и той же задачи.
-    const метка = await хранилище.get<МеткаРодителя>(
-      `${КЛЮЧ_ПРОВЕРКИ}parent:${thread.id}`,
-    );
+    // Отметка своя у каждого момента: иначе ранняя проверка необратимого
+    // закрывала бы дорогу поздней, и итог остался бы непроверенным.
+    const ключМетки = `${КЛЮЧ_ПРОВЕРКИ}parent:${thread.id}:${момент}`;
+    const метка = await хранилище.get<МеткаРодителя>(ключМетки);
     const отпечаток = отпечатокЗадачи(задача);
     if (!нуженРазбор(метка, отпечаток)) return;
 
@@ -357,65 +419,40 @@ export default async function plugin(bb: BbPluginApi) {
       return;
     }
 
-    // Момент запуска у каждого класса свой. Необратимое проверяем параллельно,
-    // чтобы успеть предупредить; остальное — по готовому результату, иначе
-    // проверяющий смотрит рабочую папку до того, как автор что-то сделал.
-    if (момент === "рано" && !проверятьРано(решение.taskClass)) return;
-    if (момент === "после" && проверятьРано(решение.taskClass)) return;
-
-    const бюджет = await хранилище.get<Бюджет>(КЛЮЧ_БЮДЖЕТА);
-    if (!бюджетПозволяет(бюджет, Date.now(), БЮДЖЕТ_В_СУТКИ, решение.taskClass)) {
-      // Отметку НЕ ставим: бюджет вернётся завтра, и задача этого класса
-      // заслуживает проверки, а не молчаливого пропуска навсегда.
-      await записатьВЖурнал(
-        thread.id,
-        задача,
-        решение.taskClass,
-        "бюджет",
-        "суточный бюджет этого класса выбран, вернусь завтра",
-      );
-      bb.log.info(
-        `второй мозг отложен для ${thread.id}: суточный бюджет для класса ${решение.taskClass} выбран`,
-      );
-      return;
-    }
+    // Момент запуска у каждого класса свой. Необратимое проверяется ДВАЖДЫ:
+    // параллельно, чтобы успеть предупредить, и по готовому результату, потому
+    // что ранний проверяющий видел рабочую папку до действия и его «расхождений
+    // не нашёл» об итоге не говорит ничего. Остальные классы ждут результата:
+    // параллельный проверяющий на сдаче артефакта смотрел бы пустое место.
+    if (!запускатьВМомент(решение.taskClass, момент)) return;
 
     if (thread.projectId === null) return;
-    const ребёнок = await bb.sdk.threads.spawn({
-      projectId: thread.projectId,
-      // Та же папка, что у автора: проверяющий смотрит те же артефакты, а не
-      // пустое новое рабочее дерево.
-      environment:
-        thread.environmentId === null
-          ? { type: "project-default" }
-          : { type: "reuse", environmentId: thread.environmentId },
-      parentThreadId: thread.id,
-      title: `Проверка · ${решение.taskClass}`,
-      prompt: заданиеПроверяющему({
+    const ребёнок = await спавнитьПроверяющего({
+      thread: {
+        id: thread.id,
+        projectId: thread.projectId,
+        environmentId: thread.environmentId,
+      },
+      taskClass: решение.taskClass,
+      задача,
+      заголовок: `Проверка · ${решение.taskClass}`,
+      задание: заданиеПроверяющему({
         задача,
         класс: решение.taskClass,
         почему: решение.why,
         раунд: 1,
       }),
-      providerId: решение.provider,
+      provider: решение.provider,
       ...(решение.model === undefined ? {} : { model: решение.model }),
       ...(решение.reasoningLevel === undefined
         ? {}
         : { reasoningLevel: решение.reasoningLevel }),
-    });
-
-    await хранилище.set(КЛЮЧ_БЮДЖЕТА, следующийБюджет(бюджет));
-    await хранилище.set(`${КЛЮЧ_ПРОВЕРКИ}${ребёнок.id}`, {
-      parentThreadId: thread.id,
-      taskClass: решение.taskClass,
-      задача,
       round: 1,
       maxRounds: решение.maxRounds ?? 1,
-      startedAt: Date.now(),
-    } satisfies Проверка);
-    // Метка на родителе: этот запрос человека уже проверен. Следующий запрос
-    // увеличит счёт, и второй мозг подключится снова.
-    await хранилище.set(`${КЛЮЧ_ПРОВЕРКИ}parent:${thread.id}`, {
+    });
+    if (ребёнок === null) return;
+
+    await хранилище.set(ключМетки, {
       задача: отпечаток,
       правила: ВЕРСИЯ_ПРАВИЛ,
       childThreadId: ребёнок.id,
@@ -507,15 +544,16 @@ export default async function plugin(bb: BbPluginApi) {
     const проверяющий = verifierFor(thread.providerId ?? "");
     if (проверяющий === undefined) return false;
 
-    const ребёнок = await bb.sdk.threads.spawn({
-      projectId: thread.projectId,
-      environment:
-        thread.environmentId === null
-          ? { type: "project-default" }
-          : { type: "reuse", environmentId: thread.environmentId },
-      parentThreadId: thread.id,
-      title: `Проверка · ${ожидание.taskClass} · раунд ${ожидание.round}`,
-      prompt: заданиеПроверяющему({
+    const ребёнок = await спавнитьПроверяющего({
+      thread: {
+        id: thread.id,
+        projectId: thread.projectId,
+        environmentId: thread.environmentId,
+      },
+      taskClass: ожидание.taskClass,
+      задача: ожидание.задача,
+      заголовок: `Проверка · ${ожидание.taskClass} · раунд ${ожидание.round}`,
+      задание: заданиеПроверяющему({
         задача: ожидание.задача,
         класс: ожидание.taskClass,
         почему: "второй раунд: проверка, закрыты ли находки",
@@ -523,23 +561,13 @@ export default async function plugin(bb: BbPluginApi) {
         находки: ожидание.находки,
         ответАвтора: ответАвтора ?? "",
       }),
-      providerId: проверяющий.provider,
+      provider: проверяющий.provider,
       model: проверяющий.model,
       reasoningLevel: "high",
-    });
-    await хранилище.set(`${КЛЮЧ_ПРОВЕРКИ}${ребёнок.id}`, {
-      parentThreadId: thread.id,
-      taskClass: ожидание.taskClass,
-      задача: ожидание.задача,
       round: ожидание.round,
       maxRounds: ожидание.maxRounds,
-      startedAt: Date.now(),
-    } satisfies Проверка);
-    // Второй раунд это ещё один запущенный проверяющий, и бюджет обязан его
-    // видеть: без списания шесть двухраундовых задач давали двенадцать тредов,
-    // а индикатор показывал шесть.
-    const бюджет = await хранилище.get<Бюджет>(КЛЮЧ_БЮДЖЕТА);
-    await хранилище.set(КЛЮЧ_БЮДЖЕТА, следующийБюджет(бюджет));
+    });
+    if (ребёнок === null) return false;
     await записатьВЖурнал(
       thread.id,
       ожидание.задача,
@@ -671,9 +699,9 @@ export default async function plugin(bb: BbPluginApi) {
           includeNestedRows: "true",
         });
         const запросы = запросыЧеловека(лента.rows as РядЛенты[]);
-        const метка = await хранилище.get<МеткаРодителя>(
-          `${КЛЮЧ_ПРОВЕРКИ}parent:${threadId}`,
-        );
+        const метка =
+          (await хранилище.get<МеткаРодителя>(`${КЛЮЧ_ПРОВЕРКИ}parent:${threadId}:после`)) ??
+          (await хранилище.get<МеткаРодителя>(`${КЛЮЧ_ПРОВЕРКИ}parent:${threadId}:рано`));
         const задача = значимыйЗапрос(запросы);
         const решение =
           задача === undefined
@@ -865,7 +893,9 @@ export default async function plugin(bb: BbPluginApi) {
         await хранилище.delete(`${КЛЮЧ_ПРОВЕРКИ}${thread.id}`);
         // Метку на родителе тоже снимаем: иначе один упавший проверяющий
         // навсегда закрывает этому треду дорогу ко второму мозгу.
-        await хранилище.delete(`${КЛЮЧ_ПРОВЕРКИ}parent:${проверка.parentThreadId}`);
+        for (const м of ["рано", "после"]) {
+          await хранилище.delete(`${КЛЮЧ_ПРОВЕРКИ}parent:${проверка.parentThreadId}:${м}`);
+        }
         // Не состоявшаяся проверка бюджета не тратит, иначе кончившийся лимит
         // проверяющего выключает второй мозг на сутки вперёд.
         const бюджет = await хранилище.get<Бюджет>(КЛЮЧ_БЮДЖЕТА);
