@@ -11,10 +11,17 @@ import {
   значимыйЗапрос,
   отпечатокЗадачи,
   последнийЗапрос,
+  шаговПослеЗапроса,
   type РядЛенты,
 } from "./human-turns.js";
 
-export { запросыЧеловека, значимыйЗапрос, отпечатокЗадачи, последнийЗапрос };
+export {
+  запросыЧеловека,
+  значимыйЗапрос,
+  отпечатокЗадачи,
+  последнийЗапрос,
+  шаговПослеЗапроса,
+};
 
 /**
  * Второй мозг: независимый проверяющий другого семейства на задачах, где ошибка
@@ -258,6 +265,28 @@ export function сводкаДляАвтора(args: {
     "",
     args.вывод.trim(),
   ].join("\n");
+}
+
+/**
+ * Ожидание, прерываемое сигналом остановки.
+ *
+ * Голый setTimeout здесь не годится: служба спит минуту и не слышит остановку,
+ * поэтому при перезагрузке плагина сервер сообщает «service watch-cost did not
+ * stop», а сам плагин переходит в состояние degraded (поймано 07.09.2026 сразу
+ * после установки датчика).
+ */
+function подождать(мс: number, signal: AbortSignal): Promise<void> {
+  return new Promise((готово) => {
+    const таймер = setTimeout(готово, мс);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(таймер);
+        готово();
+      },
+      { once: true },
+    );
+  });
 }
 
 export default async function plugin(bb: BbPluginApi) {
@@ -553,12 +582,7 @@ export default async function plugin(bb: BbPluginApi) {
         );
         if (уже?.задача === отпечаток) continue;
 
-        let работа = 0;
-        const считать = (ряд: РядЛенты & { children?: РядЛенты[] | null }): void => {
-          if (ряд.kind === "work") работа += 1;
-          if (ряд.children != null) for (const р of ряд.children) считать(р);
-        };
-        for (const ряд of лента.rows as РядЛенты[]) считать(ряд);
+        const работа = шаговПослеЗапроса(лента.rows as РядЛенты[]);
         if (работа < ПОРОГ_РАЗРАСТАНИЯ) continue;
 
         await хранилище.set(`${КЛЮЧ_СОВЕТА}${тред.id}`, {
@@ -610,7 +634,7 @@ export default async function plugin(bb: BbPluginApi) {
             }`,
           );
         }
-        await new Promise((готово) => setTimeout(готово, 60_000));
+        await подождать(60_000, signal);
       }
     },
   });
