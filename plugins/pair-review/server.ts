@@ -1,6 +1,11 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 
-import { classifyTask, verifierFor, type PairDecision } from "./classify.js";
+import {
+  classifyTask,
+  проверятьРано,
+  verifierFor,
+  type PairDecision,
+} from "./classify.js";
 import {
   запросыЧеловека,
   значимыйЗапрос,
@@ -279,12 +284,15 @@ export default async function plugin(bb: BbPluginApi) {
     );
   }
 
-  async function запуститьПроверку(thread: {
-    id: string;
-    projectId: string | null;
-    providerId: string | null;
-    environmentId: string | null;
-  }): Promise<void> {
+  async function запуститьПроверку(
+    thread: {
+      id: string;
+      projectId: string | null;
+      providerId: string | null;
+      environmentId: string | null;
+    },
+    момент: "рано" | "после",
+  ): Promise<void> {
     const лента = await bb.sdk.threads.timeline({
       threadId: thread.id,
       includeNestedRows: "true",
@@ -319,6 +327,12 @@ export default async function plugin(bb: BbPluginApi) {
       );
       return;
     }
+
+    // Момент запуска у каждого класса свой. Необратимое проверяем параллельно,
+    // чтобы успеть предупредить; остальное — по готовому результату, иначе
+    // проверяющий смотрит рабочую папку до того, как автор что-то сделал.
+    if (момент === "рано" && !проверятьРано(решение.taskClass)) return;
+    if (момент === "после" && проверятьРано(решение.taskClass)) return;
 
     const бюджет = await хранилище.get<Бюджет>(КЛЮЧ_БЮДЖЕТА);
     if (!бюджетПозволяет(бюджет, Date.now(), БЮДЖЕТ_В_СУТКИ, решение.taskClass)) {
@@ -492,6 +506,11 @@ export default async function plugin(bb: BbPluginApi) {
       maxRounds: ожидание.maxRounds,
       startedAt: Date.now(),
     } satisfies Проверка);
+    // Второй раунд это ещё один запущенный проверяющий, и бюджет обязан его
+    // видеть: без списания шесть двухраундовых задач давали двенадцать тредов,
+    // а индикатор показывал шесть.
+    const бюджет = await хранилище.get<Бюджет>(КЛЮЧ_БЮДЖЕТА);
+    await хранилище.set(КЛЮЧ_БЮДЖЕТА, следующийБюджет(бюджет));
     await записатьВЖурнал(
       thread.id,
       ожидание.задача,
@@ -501,6 +520,100 @@ export default async function plugin(bb: BbPluginApi) {
     );
     return true;
   }
+
+  /**
+   * Порог, после которого ход считается разросшимся.
+   *
+   * Замер по живой базе 07.09.2026: средний ход в системе стоит 2,8 млн
+   * токенов, а самый дорогой (55 млн за ОДИН ход) состоял из 270 команд и 42
+   * правок без единого делегирования. Дело не в модели треда, а в том, что
+   * каждый следующий вызов перечитывает разросшийся контекст. Инструкция
+   * «выноси механику в дочерний тред» без датчика регрессирует к среднему,
+   * поэтому напоминание приходит в тот момент, когда оно ещё что-то меняет.
+   */
+  const ПОРОГ_РАЗРАСТАНИЯ = 90;
+  const КЛЮЧ_СОВЕТА = "advice:";
+
+  async function присмотретьЗаРасходом(): Promise<void> {
+    const идущие = await bb.sdk.threads.listRunning({});
+    for (const краткий of идущие) {
+      const тред = await bb.sdk.threads.get({ threadId: краткий.id });
+      try {
+        if (тред.parentThreadId != null) continue;
+        const лента = await bb.sdk.threads.timeline({
+          threadId: тред.id,
+          includeNestedRows: "true",
+        });
+        const запросы = запросыЧеловека(лента.rows as РядЛенты[]);
+        const задача = значимыйЗапрос(запросы);
+        if (задача === undefined) continue;
+        const отпечаток = отпечатокЗадачи(задача);
+        const уже = await хранилище.get<{ задача?: string }>(
+          `${КЛЮЧ_СОВЕТА}${тред.id}`,
+        );
+        if (уже?.задача === отпечаток) continue;
+
+        let работа = 0;
+        const считать = (ряд: РядЛенты & { children?: РядЛенты[] | null }): void => {
+          if (ряд.kind === "work") работа += 1;
+          if (ряд.children != null) for (const р of ряд.children) считать(р);
+        };
+        for (const ряд of лента.rows as РядЛенты[]) считать(ряд);
+        if (работа < ПОРОГ_РАЗРАСТАНИЯ) continue;
+
+        await хранилище.set(`${КЛЮЧ_СОВЕТА}${тред.id}`, {
+          задача: отпечаток,
+          at: Date.now(),
+        });
+        await bb.sdk.threads.send({
+          threadId: тред.id,
+          mode: "steer-if-active",
+          input: [
+            {
+              type: "text",
+              mentions: [],
+              text: [
+                `**Расход · ${работа} рабочих шагов в этой задаче**`,
+                "",
+                "Каждый следующий ход перечитывает весь накопленный контекст, поэтому",
+                "длинная механическая серия здесь стоит дороже всего остального.",
+                "Если впереди ещё перебор, сбор или однотипные правки, вынеси их в дочерний",
+                "тред на дешёвой модели и верни сюда итог, а не сырые выводы:",
+                "",
+                "`bb thread spawn --provider claude-code --model claude-sonnet-5 --prompt \"...\"`",
+                "",
+                "Решения, суждение о качестве и текст для человека оставь себе.",
+              ].join("\n"),
+            },
+          ],
+        });
+        bb.log.info(`расход: подсказал вынести механику в ${тред.id} (${работа} шагов)`);
+      } catch (error) {
+        bb.log.warn(
+          `присмотр за расходом пропущен для ${тред.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+  }
+
+  bb.background.service("watch-cost", {
+    async start(signal) {
+      while (!signal.aborted) {
+        try {
+          await присмотретьЗаРасходом();
+        } catch (error) {
+          bb.log.warn(
+            `присмотр за расходом сорвался: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+        await new Promise((готово) => setTimeout(готово, 60_000));
+      }
+    },
+  });
 
   bb.cli.register({
     name: "pair-review",
@@ -545,8 +658,20 @@ export default async function plugin(bb: BbPluginApi) {
                 prompt: задача,
                 parentProvider: тред.providerId ?? "",
               });
+        // Состав ленты: по нему видно, из чего состоит работа в треде и
+        // сколько её ушло на механику, которую можно было отдать дешёвой модели.
+        const состав: Record<string, number> = {};
+        const обойтиСостав = (ряд: РядЛенты & { children?: unknown }): void => {
+          const вид = ряд.kind ?? "?";
+          состав[вид] = (состав[вид] ?? 0) + 1;
+          const дети = (ряд as { children?: РядЛенты[] | null }).children;
+          if (дети != null) for (const р of дети) обойтиСостав(р);
+        };
+        for (const ряд of лента.rows as РядЛенты[]) обойтиСостав(ряд);
+
         const итог = {
           тред: threadId,
+          состав,
           провайдер: тред.providerId ?? null,
           строкЛенты: лента.rows.length,
           запросовЧеловека: запросы.length,
@@ -566,6 +691,10 @@ export default async function plugin(bb: BbPluginApi) {
           stdout: [
             `Тред ${итог.тред} (${итог.провайдер ?? "провайдер неизвестен"})`,
             `Строк ленты: ${итог.строкЛенты}, запросов человека: ${итог.запросовЧеловека}, эта задача уже проверена: ${итог.этаЗадачаУжеПроверена ? "да" : "нет"}`,
+            `Состав ленты: ${Object.entries(итог.состав)
+              .sort((a, b) => b[1] - a[1])
+              .map(([к, н]) => `${к} ${н}`)
+              .join(", ")}`,
             `Последний запрос: ${итог.последний ?? "человек ещё не писал"}`,
             `Класс: ${итог.класс ?? "—"}`,
             итог.подключится
@@ -634,12 +763,15 @@ export default async function plugin(bb: BbPluginApi) {
       try {
         if (thread.parentThreadId != null) return;
         if (thread.visibility !== "visible") return;
-        await запуститьПроверку({
-          id: thread.id,
-          projectId: thread.projectId ?? null,
-          providerId: thread.providerId ?? null,
-          environmentId: thread.environmentId ?? null,
-        });
+        await запуститьПроверку(
+          {
+            id: thread.id,
+            projectId: thread.projectId ?? null,
+            providerId: thread.providerId ?? null,
+            environmentId: thread.environmentId ?? null,
+          },
+          "рано",
+        );
       } catch (error) {
         bb.log.warn(
           `второй мозг пропущен: ${
@@ -679,12 +811,15 @@ export default async function plugin(bb: BbPluginApi) {
         }
         if (thread.parentThreadId != null) return;
         if (thread.visibility !== "visible") return;
-        await запуститьПроверку({
-          id: thread.id,
-          projectId: thread.projectId ?? null,
-          providerId: thread.providerId ?? null,
-          environmentId: thread.environmentId ?? null,
-        });
+        await запуститьПроверку(
+          {
+            id: thread.id,
+            projectId: thread.projectId ?? null,
+            providerId: thread.providerId ?? null,
+            environmentId: thread.environmentId ?? null,
+          },
+          "после",
+        );
       } catch (error) {
         // Сбой второго мозга не должен мешать основной работе человека.
         bb.log.warn(
