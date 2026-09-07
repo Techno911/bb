@@ -23,6 +23,27 @@ import { classifyTask, type PairDecision } from "./classify.js";
 const БЮДЖЕТ_В_СУТКИ = 6;
 const КЛЮЧ_БЮДЖЕТА = "budget";
 const КЛЮЧ_ПРОВЕРКИ = "review:";
+/** Журнал решений: что проверено, что пропущено и почему. Кольцо на 60 записей. */
+const КЛЮЧ_ЖУРНАЛА = "log";
+const ДЛИНА_ЖУРНАЛА = 60;
+
+export interface ЗаписьЖурнала {
+  at: number;
+  threadId: string;
+  title: string;
+  taskClass: string;
+  решение: "проверка" | "молчим" | "бюджет";
+  why: string;
+}
+
+export function дописатьВЖурнал(
+  журнал: ЗаписьЖурнала[] | undefined,
+  запись: ЗаписьЖурнала,
+  длина = ДЛИНА_ЖУРНАЛА,
+): ЗаписьЖурнала[] {
+  const все = [...(журнал ?? []), запись];
+  return все.slice(-длина);
+}
 
 interface Бюджет {
   day: string;
@@ -41,13 +62,38 @@ function сегодня(now = Date.now()): string {
   return new Date(now).toISOString().slice(0, 10);
 }
 
+/**
+ * Классы, ради которых бюджет и держится: там ошибка стоит денег или
+ * необратима. Им доступен весь дневной запас.
+ */
+const ДОРОГИЕ_КЛАССЫ = new Set([
+  "деньги-и-обещания",
+  "необратимое",
+  "диагностика",
+]);
+
+/**
+ * Сколько проверок дешёвых классов допускаем, прежде чем остановиться.
+ *
+ * Половина запаса зарезервирована под дорогие классы. Повод: у Артёма около
+ * двухсот тредов, и работа в них идёт весь день. Без резерва первые же шесть
+ * подошедших задач любого класса выберут бюджет к обеду, и когда придёт
+ * расчёт денег клиента, проверять будет нечем.
+ */
+const ПРЕДЕЛ_ДЕШЁВЫХ = 3;
+
 export function бюджетПозволяет(
   бюджет: Бюджет | undefined,
   now = Date.now(),
   предел = БЮДЖЕТ_В_СУТКИ,
+  класс?: string,
 ): boolean {
   if (бюджет === undefined || бюджет.day !== сегодня(now)) return true;
-  return бюджет.used < предел;
+  const потолок =
+    класс !== undefined && !ДОРОГИЕ_КЛАССЫ.has(класс)
+      ? Math.min(ПРЕДЕЛ_ДЕШЁВЫХ, предел)
+      : предел;
+  return бюджет.used < потолок;
 }
 
 export function следующийБюджет(
@@ -78,29 +124,51 @@ interface РядЛенты {
   kind?: string;
   role?: string;
   text?: string;
+  /** Кто на самом деле прислал строку: человек, агент или система. */
+  initiator?: string;
+  /** Не null, если строку прислал другой тред (spawn, steer, плагин). */
+  senderThreadId?: string | null;
   children?: РядЛенты[] | null;
 }
 
-/** Первый запрос человека в треде: по нему судим о классе задачи. */
-export function первыйЗапрос(rows: readonly РядЛенты[]): string | undefined {
-  const обойти = (ряд: РядЛенты): string | undefined => {
+/**
+ * Запросы ЧЕЛОВЕКА в треде, по порядку.
+ *
+ * Проверять `role === "user"` недостаточно, и это опасно вдвойне. Такую роль
+ * несут ещё и сообщения, присланные другими тредами (spawn, steer) и плагинами
+ * — включая сводку, которую в родителя шлёт этот же плагин. Считай их
+ * запросами человека, и получится петля: сводка порождает новую проверку,
+ * та возвращает новую сводку, и так до конца суточного бюджета.
+ * Человека опознаём по трём признакам сразу.
+ */
+export function запросыЧеловека(rows: readonly РядЛенты[]): string[] {
+  const найденные: string[] = [];
+  const обойти = (ряд: РядЛенты): void => {
     if (ряд.kind === "conversation" && ряд.role === "user") {
+      const свой = ряд.initiator === undefined || ряд.initiator === "user";
+      const ничей = ряд.senderThreadId == null;
       const текст = (ряд.text ?? "").trim();
-      return текст.length > 0 ? текст : undefined;
+      if (свой && ничей && текст.length > 0) найденные.push(текст);
     }
-    if (ряд.kind === "turn" && ряд.children != null) {
-      for (const ребёнок of ряд.children) {
-        const найдено = обойти(ребёнок);
-        if (найдено !== undefined) return найдено;
-      }
+    if (ряд.children != null) {
+      for (const ребёнок of ряд.children) обойти(ребёнок);
     }
-    return undefined;
   };
-  for (const ряд of rows) {
-    const найдено = обойти(ряд);
-    if (найдено !== undefined) return найдено;
-  }
-  return undefined;
+  for (const ряд of rows) обойти(ряд);
+  return найденные;
+}
+
+/**
+ * Последний запрос человека: по нему судим о задаче.
+ *
+ * Раньше брался ПЕРВЫЙ, и для нового треда это одно и то же. Но у Артёма
+ * десятки тредов, живущих неделями: первый запрос там про то, с чего всё
+ * начиналось месяц назад, а работа давно ушла в другую сторону. Класс задачи
+ * определяется тем, что человек просит СЕЙЧАС.
+ */
+export function последнийЗапрос(rows: readonly РядЛенты[]): string | undefined {
+  const все = запросыЧеловека(rows);
+  return все.length > 0 ? все[все.length - 1] : undefined;
 }
 
 /** Задание проверяющему. Намеренно не содержит вывода автора. */
@@ -154,34 +222,83 @@ export function сводкаДляАвтора(args: {
 export default async function plugin(bb: BbPluginApi) {
   const хранилище = bb.storage.kv;
 
+  async function записатьВЖурнал(
+    threadId: string,
+    задача: string,
+    taskClass: string,
+    решение: ЗаписьЖурнала["решение"],
+    why: string,
+  ): Promise<void> {
+    const журнал = await хранилище.get<ЗаписьЖурнала[]>(КЛЮЧ_ЖУРНАЛА);
+    await хранилище.set(
+      КЛЮЧ_ЖУРНАЛА,
+      дописатьВЖурнал(журнал, {
+        at: Date.now(),
+        threadId,
+        title: задача.slice(0, 70).replace(/\s+/g, " "),
+        taskClass,
+        решение,
+        why,
+      }),
+    );
+  }
+
   async function запуститьПроверку(thread: {
     id: string;
     projectId: string | null;
     providerId: string | null;
     environmentId: string | null;
   }): Promise<void> {
-    const бюджет = await хранилище.get<Бюджет>(КЛЮЧ_БЮДЖЕТА);
-    if (!бюджетПозволяет(бюджет)) {
-      bb.log.info(
-        `второй мозг пропущен для ${thread.id}: суточный бюджет проверок исчерпан`,
-      );
-      return;
-    }
-
     const лента = await bb.sdk.threads.timeline({
       threadId: thread.id,
       includeNestedRows: "true",
     });
-    const задача = первыйЗапрос(лента.rows as РядЛенты[]);
-    if (задача === undefined) return;
+    const запросы = запросыЧеловека(лента.rows as РядЛенты[]);
+    if (запросы.length === 0) return;
+    const задача = запросы[запросы.length - 1];
+
+    // Проверка привязана к КОНКРЕТНОМУ запросу человека, а не к треду.
+    // Иначе живущий неделями тред получил бы второй мозг ровно один раз за всю
+    // жизнь, а дальше молчал бы навсегда — при том что работа в нём идёт
+    // каждый день. И наоборот, без счётчика проверка запускалась бы после
+    // каждого хода агента внутри одной и той же задачи.
+    const метка = await хранилище.get<{ запросов: number }>(
+      `${КЛЮЧ_ПРОВЕРКИ}parent:${thread.id}`,
+    );
+    if (метка !== undefined && метка.запросов >= запросы.length) return;
 
     const решение: PairDecision = classifyTask({
       prompt: задача,
       parentProvider: thread.providerId ?? "",
     });
     if (!решение.pair || решение.provider === undefined) {
+      // Отметку ставим и на отказе: иначе классификатор гонялся бы заново
+      // после каждого хода агента по одному и тому же запросу.
+      await хранилище.set(`${КЛЮЧ_ПРОВЕРКИ}parent:${thread.id}`, {
+        запросов: запросы.length,
+        childThreadId: null,
+        at: Date.now(),
+      });
+      await записатьВЖурнал(thread.id, задача, решение.taskClass, "молчим", решение.why);
       bb.log.info(
         `второй мозг не нужен для ${thread.id}: ${решение.taskClass} — ${решение.why}`,
+      );
+      return;
+    }
+
+    const бюджет = await хранилище.get<Бюджет>(КЛЮЧ_БЮДЖЕТА);
+    if (!бюджетПозволяет(бюджет, Date.now(), БЮДЖЕТ_В_СУТКИ, решение.taskClass)) {
+      // Отметку НЕ ставим: бюджет вернётся завтра, и задача этого класса
+      // заслуживает проверки, а не молчаливого пропуска навсегда.
+      await записатьВЖурнал(
+        thread.id,
+        задача,
+        решение.taskClass,
+        "бюджет",
+        "суточный бюджет этого класса выбран, вернусь завтра",
+      );
+      bb.log.info(
+        `второй мозг отложен для ${thread.id}: суточный бюджет для класса ${решение.taskClass} выбран`,
       );
       return;
     }
@@ -218,11 +335,20 @@ export default async function plugin(bb: BbPluginApi) {
       maxRounds: решение.maxRounds ?? 1,
       startedAt: Date.now(),
     } satisfies Проверка);
-    // Метка на родителе, чтобы второй ход того же треда не порождал вторую проверку.
+    // Метка на родителе: этот запрос человека уже проверен. Следующий запрос
+    // увеличит счёт, и второй мозг подключится снова.
     await хранилище.set(`${КЛЮЧ_ПРОВЕРКИ}parent:${thread.id}`, {
+      запросов: запросы.length,
       childThreadId: ребёнок.id,
       at: Date.now(),
     });
+    await записатьВЖурнал(
+      thread.id,
+      задача,
+      решение.taskClass,
+      "проверка",
+      `${решение.provider}/${решение.model}, ${решение.reasoningLevel}, раундов ${решение.maxRounds}`,
+    );
     bb.log.info(
       `второй мозг: ${решение.provider}/${решение.model} проверяет ${thread.id} (${решение.taskClass})`,
     );
@@ -268,6 +394,53 @@ export default async function plugin(bb: BbPluginApi) {
     });
   }
 
+  bb.cli.register({
+    name: "pair-review",
+    summary: "Второй мозг: что проверено, что пропущено и почему",
+    commands: [
+      {
+        name: "show",
+        summary: "Журнал решений и остаток суточного бюджета",
+        usage: "bb pair-review show [--json]",
+      },
+    ],
+    async run(argv) {
+      const json = argv.includes("--json");
+      const журнал = (await хранилище.get<ЗаписьЖурнала[]>(КЛЮЧ_ЖУРНАЛА)) ?? [];
+      const бюджет = await хранилище.get<Бюджет>(КЛЮЧ_БЮДЖЕТА);
+      const сегодняшний =
+        бюджет !== undefined && бюджет.day === сегодня() ? бюджет.used : 0;
+      if (json) {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ бюджет: сегодняшний, предел: БЮДЖЕТ_В_СУТКИ, журнал }),
+        };
+      }
+      const строки: string[] = [
+        `Бюджет на сегодня: ${сегодняшний} из ${БЮДЖЕТ_В_СУТКИ}` +
+          ` (дешёвым классам доступно ${ПРЕДЕЛ_ДЕШЁВЫХ})`,
+        "",
+      ];
+      if (журнал.length === 0) {
+        строки.push("Решений пока нет: второй мозг подключается, когда человек");
+        строки.push("ставит задачу дорогого класса, а не после каждого хода.");
+      } else {
+        for (const з of журнал.slice(-20)) {
+          const время = new Date(з.at).toLocaleString("ru-RU", {
+            day: "2-digit",
+            month: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          строки.push(`${время}  ${з.решение.padEnd(8)} ${з.taskClass}`);
+          строки.push(`   «${з.title}»`);
+          строки.push(`   ${з.why}`);
+        }
+      }
+      return { exitCode: 0, stdout: строки.join("\n") };
+    },
+  });
+
   bb.events.on("thread.idle", ({ thread }) => {
     void (async () => {
       try {
@@ -280,8 +453,6 @@ export default async function plugin(bb: BbPluginApi) {
         }
         if (thread.parentThreadId != null) return;
         if (thread.visibility !== "visible") return;
-        const уже = await хранилище.get(`${КЛЮЧ_ПРОВЕРКИ}parent:${thread.id}`);
-        if (уже !== undefined) return;
         await запуститьПроверку({
           id: thread.id,
           projectId: thread.projectId ?? null,
