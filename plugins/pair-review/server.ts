@@ -1,6 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 
-import { classifyTask, type PairDecision } from "./classify.js";
+import { classifyTask, verifierFor, type PairDecision } from "./classify.js";
 import {
   запросыЧеловека,
   значимыйЗапрос,
@@ -34,6 +34,44 @@ const КЛЮЧ_БЮДЖЕТА = "budget";
 const КЛЮЧ_ПРОВЕРКИ = "review:";
 /** Журнал решений: что проверено, что пропущено и почему. Кольцо на 60 записей. */
 const КЛЮЧ_ЖУРНАЛА = "log";
+/** Ждём ответа автора, чтобы запустить второй раунд. */
+const КЛЮЧ_РАУНДА = "round2:";
+
+/**
+ * Версия правил классификатора. Растёт, когда меняются признаки классов.
+ *
+ * Найдено проверяющим 07.09.2026: отметка «эта задача уже разобрана» пережила
+ * исправление правил. Тред thr_sipp6jucvf получил отметку, когда его запрос
+ * считался рутиной; после починки тот же запрос стал «необратимым», но отметка
+ * закрывала его навсегда, и в базе стояло childThreadId: null — то есть
+ * пропуск выглядел выполненной проверкой. Отметка теперь помнит, по каким
+ * правилам её поставили.
+ */
+const ВЕРСИЯ_ПРАВИЛ = 2;
+
+export interface МеткаРодителя {
+  задача?: string;
+  правила?: number;
+  childThreadId?: string | null;
+}
+
+/**
+ * Нужно ли разбирать эту задачу заново.
+ *
+ * Отметка закрывает задачу только тогда, когда она поставлена ПО ТЕКУЩИМ
+ * правилам. Старая отметка (поставленная, когда запрос считался рутиной)
+ * задачу не закрывает: правила с тех пор исправлены, и решение может стать
+ * другим.
+ */
+export function нуженРазбор(
+  метка: МеткаРодителя | undefined,
+  отпечаток: string,
+  версия = ВЕРСИЯ_ПРАВИЛ,
+): boolean {
+  if (метка === undefined) return true;
+  if (метка.задача !== отпечаток) return true;
+  return (метка.правила ?? 0) < версия;
+}
 const ДЛИНА_ЖУРНАЛА = 60;
 
 export interface ЗаписьЖурнала {
@@ -62,6 +100,8 @@ interface Бюджет {
 interface Проверка {
   parentThreadId: string;
   taskClass: string;
+  /** Исходная задача: второму раунду её неоткуда взять заново. */
+  задача?: string;
   round: number;
   maxRounds: number;
   startedAt: number;
@@ -129,13 +169,51 @@ export function вернутьБюджет(
   return { day: бюджет.day, used: бюджет.used - 1 };
 }
 
-/** Задание проверяющему. Намеренно не содержит вывода автора. */
+/**
+ * Задание проверяющему.
+ *
+ * В первом раунде намеренно не содержит вывода автора: увидев чужой ответ,
+ * модель соглашается вместо проверки. Во ВТОРОМ раунде наоборот — там уже надо
+ * судить, закрыты ли собственные находки, и без ответа автора это невозможно.
+ */
 export function заданиеПроверяющему(args: {
   задача: string;
   класс: string;
   почему: string;
   раунд: number;
+  находки?: string;
+  ответАвтора?: string;
 }): string {
+  if (args.раунд > 1) {
+    return [
+      "Ты проверяющий, и это второй раунд. В первом ты нашёл расхождения, автор на них ответил.",
+      "Твоя работа сейчас одна: сказать по КАЖДОЙ своей находке, закрыта она или нет.",
+      "",
+      `Класс задачи: ${args.класс}.`,
+      "",
+      "Исходная задача человека:",
+      "---",
+      args.задача.slice(0, 2500),
+      "---",
+      "",
+      "Что ты нашёл в первом раунде:",
+      "---",
+      (args.находки ?? "").slice(0, 3000),
+      "---",
+      "",
+      "Что ответил автор:",
+      "---",
+      (args.ответАвтора ?? "").slice(0, 3000),
+      "---",
+      "",
+      "Правила ответа:",
+      "1. По каждой находке: «закрыта» или «не закрыта», и чем это доказано в рабочей папке.",
+      "2. Ответ автора доказательством НЕ является: проверь сам, файлом или командой.",
+      "3. Первая строка: «все закрыты» либо «не закрыто N из M».",
+      "4. Ничего не чини и не запускай: только чтение.",
+      "5. Новых тем не поднимай, разбирай только свои находки. По-русски и коротко.",
+    ].join("\n");
+  }
   return [
     "Ты независимый проверяющий. Твоя работа — не выполнить задачу заново, а найти в её решении то,",
     "что дорого стоит: неверный факт, число, которое не сходится с источником, обещание без механизма,",
@@ -221,24 +299,20 @@ export default async function plugin(bb: BbPluginApi) {
     // жизнь, а дальше молчал бы навсегда — при том что работа в нём идёт
     // каждый день. И наоборот, без счётчика проверка запускалась бы после
     // каждого хода агента внутри одной и той же задачи.
-    const метка = await хранилище.get<{ задача?: string }>(
+    const метка = await хранилище.get<МеткаРодителя>(
       `${КЛЮЧ_ПРОВЕРКИ}parent:${thread.id}`,
     );
     const отпечаток = отпечатокЗадачи(задача);
-    if (метка?.задача === отпечаток) return;
+    if (!нуженРазбор(метка, отпечаток)) return;
 
     const решение: PairDecision = classifyTask({
       prompt: задача,
       parentProvider: thread.providerId ?? "",
     });
     if (!решение.pair || решение.provider === undefined) {
-      // Отметку ставим и на отказе: иначе классификатор гонялся бы заново
-      // после каждого хода агента по одному и тому же запросу.
-      await хранилище.set(`${КЛЮЧ_ПРОВЕРКИ}parent:${thread.id}`, {
-        задача: отпечаток,
-        childThreadId: null,
-        at: Date.now(),
-      });
+      // Отметку на отказе НЕ ставим. Классификация это регулярка, гонять её
+      // заново дёшево, а сохранённый отказ переживает исправление правил: так
+      // пропущенная проверка выглядела выполненной (childThreadId: null).
       await записатьВЖурнал(thread.id, задача, решение.taskClass, "молчим", решение.why);
       bb.log.info(
         `второй мозг не нужен для ${thread.id}: ${решение.taskClass} — ${решение.why}`,
@@ -291,6 +365,7 @@ export default async function plugin(bb: BbPluginApi) {
     await хранилище.set(`${КЛЮЧ_ПРОВЕРКИ}${ребёнок.id}`, {
       parentThreadId: thread.id,
       taskClass: решение.taskClass,
+      задача,
       round: 1,
       maxRounds: решение.maxRounds ?? 1,
       startedAt: Date.now(),
@@ -299,6 +374,7 @@ export default async function plugin(bb: BbPluginApi) {
     // увеличит счёт, и второй мозг подключится снова.
     await хранилище.set(`${КЛЮЧ_ПРОВЕРКИ}parent:${thread.id}`, {
       задача: отпечаток,
+      правила: ВЕРСИЯ_ПРАВИЛ,
       childThreadId: ребёнок.id,
       at: Date.now(),
     });
@@ -352,6 +428,78 @@ export default async function plugin(bb: BbPluginApi) {
         },
       ],
     });
+
+    // Второй раунд обещан дорогим классам, значит должен состояться. Ждём
+    // ответа автора на находки: когда он закончит ход, проверяющий скажет,
+    // закрыты они или нет. Без этого «раундов 2» было обещанием без механики.
+    if (проверка.round < проверка.maxRounds) {
+      await хранилище.set(`${КЛЮЧ_РАУНДА}${проверка.parentThreadId}`, {
+        задача: проверка.задача ?? "",
+        находки: вывод,
+        taskClass: проверка.taskClass,
+        round: проверка.round + 1,
+        maxRounds: проверка.maxRounds,
+        at: Date.now(),
+      });
+    }
+  }
+
+  /** Второй раунд: проверяющий судит, закрыты ли его собственные находки. */
+  async function второйРаунд(thread: {
+    id: string;
+    projectId: string | null;
+    providerId: string | null;
+    environmentId: string | null;
+  }, ответАвтора: string | null): Promise<boolean> {
+    const ожидание = await хранилище.get<{
+      задача: string;
+      находки: string;
+      taskClass: string;
+      round: number;
+      maxRounds: number;
+    }>(`${КЛЮЧ_РАУНДА}${thread.id}`);
+    if (ожидание === undefined) return false;
+    await хранилище.delete(`${КЛЮЧ_РАУНДА}${thread.id}`);
+    if (thread.projectId === null) return false;
+    const проверяющий = verifierFor(thread.providerId ?? "");
+    if (проверяющий === undefined) return false;
+
+    const ребёнок = await bb.sdk.threads.spawn({
+      projectId: thread.projectId,
+      environment:
+        thread.environmentId === null
+          ? { type: "project-default" }
+          : { type: "reuse", environmentId: thread.environmentId },
+      parentThreadId: thread.id,
+      title: `Проверка · ${ожидание.taskClass} · раунд ${ожидание.round}`,
+      prompt: заданиеПроверяющему({
+        задача: ожидание.задача,
+        класс: ожидание.taskClass,
+        почему: "второй раунд: проверка, закрыты ли находки",
+        раунд: ожидание.round,
+        находки: ожидание.находки,
+        ответАвтора: ответАвтора ?? "",
+      }),
+      providerId: проверяющий.provider,
+      model: проверяющий.model,
+      reasoningLevel: "high",
+    });
+    await хранилище.set(`${КЛЮЧ_ПРОВЕРКИ}${ребёнок.id}`, {
+      parentThreadId: thread.id,
+      taskClass: ожидание.taskClass,
+      задача: ожидание.задача,
+      round: ожидание.round,
+      maxRounds: ожидание.maxRounds,
+      startedAt: Date.now(),
+    } satisfies Проверка);
+    await записатьВЖурнал(
+      thread.id,
+      ожидание.задача,
+      ожидание.taskClass,
+      "проверка",
+      `раунд ${ожидание.round}: проверяю, закрыты ли находки`,
+    );
+    return true;
   }
 
   bb.cli.register({
@@ -386,7 +534,7 @@ export default async function plugin(bb: BbPluginApi) {
           includeNestedRows: "true",
         });
         const запросы = запросыЧеловека(лента.rows as РядЛенты[]);
-        const метка = await хранилище.get<{ задача?: string }>(
+        const метка = await хранилище.get<МеткаРодителя>(
           `${КЛЮЧ_ПРОВЕРКИ}parent:${threadId}`,
         );
         const задача = значимыйЗапрос(запросы);
@@ -403,7 +551,8 @@ export default async function plugin(bb: BbPluginApi) {
           строкЛенты: лента.rows.length,
           запросовЧеловека: запросы.length,
           этаЗадачаУжеПроверена:
-            задача !== undefined && метка?.задача === отпечатокЗадачи(задача),
+            задача !== undefined &&
+            !нуженРазбор(метка, отпечатокЗадачи(задача)),
           последний: задача?.slice(0, 120) ?? null,
           класс: решение?.taskClass ?? null,
           подключится: решение?.pair ?? false,
@@ -460,7 +609,52 @@ export default async function plugin(bb: BbPluginApi) {
     },
   });
 
-  bb.events.on("thread.idle", ({ thread }) => {
+  /**
+   * Проверка стартует ВМЕСТЕ с работой автора, а не после неё.
+   *
+   * Найдено проверяющим 07.09.2026: на `thread.idle` находки приходят, когда
+   * удаление или отправка клиенту уже состоялись. Проверяющий работает вслепую
+   * и вывод автора ему не нужен, поэтому его можно запускать сразу. Полной
+   * гарантии это не даёт — плагин не гейт разрешений и автора не останавливает,
+   * — но окно сокращается с «после хода» до «параллельно с ходом».
+   *
+   * Подписка двойная: `thread.active` это быстрый путь, `thread.idle` остаётся
+   * страховкой на случай, когда в момент старта запрос ещё не попал в ленту.
+   * Двойного запуска не будет: отметка о разобранной задаче общая.
+   */
+  const наПереходе = (thread: {
+    id: string;
+    parentThreadId?: string | null;
+    visibility?: string;
+    projectId?: string | null;
+    providerId?: string | null;
+    environmentId?: string | null;
+  }): void => {
+    void (async () => {
+      try {
+        if (thread.parentThreadId != null) return;
+        if (thread.visibility !== "visible") return;
+        await запуститьПроверку({
+          id: thread.id,
+          projectId: thread.projectId ?? null,
+          providerId: thread.providerId ?? null,
+          environmentId: thread.environmentId ?? null,
+        });
+      } catch (error) {
+        bb.log.warn(
+          `второй мозг пропущен: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    })();
+  };
+
+  bb.events.on("thread.active", ({ thread }) => {
+    наПереходе(thread);
+  });
+
+  bb.events.on("thread.idle", ({ thread, lastAssistantText }) => {
     void (async () => {
       try {
         const это_проверка = await хранилище.get<Проверка>(
@@ -469,6 +663,19 @@ export default async function plugin(bb: BbPluginApi) {
         if (это_проверка !== undefined) {
           await вернутьНаходки(thread.id);
           return;
+        }
+        // Автор ответил на находки: пора сказать, закрыты они или нет.
+        if (thread.parentThreadId == null) {
+          const пошёл = await второйРаунд(
+            {
+              id: thread.id,
+              projectId: thread.projectId ?? null,
+              providerId: thread.providerId ?? null,
+              environmentId: thread.environmentId ?? null,
+            },
+            lastAssistantText,
+          );
+          if (пошёл) return;
         }
         if (thread.parentThreadId != null) return;
         if (thread.visibility !== "visible") return;
