@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyTask, verifierFor } from "./classify.js";
+import { classifyTask, проверятьРано, verifierFor } from "./classify.js";
 
 describe("решение о втором мозге", () => {
   it("зовёт проверяющего там, где ошибка стоит денег", () => {
@@ -42,6 +42,31 @@ describe("решение о втором мозге", () => {
     // это «коллективное заблуждение» агентов одного рода.
     expect(verifierFor("claude-code")?.provider).not.toBe("claude-code");
     expect(verifierFor("codex")?.provider).not.toBe("codex");
+  });
+
+  it("мощность проверяющего зависит от класса, а не всегда старшая", () => {
+    // Найдено проверяющим 07.09.2026: verifierFor всегда возвращал старшую
+    // модель, поэтому перевод основной работы на дешёвую не уменьшал стоимость
+    // автоматически добавляемой проверки.
+    expect(verifierFor("claude-code", "деньги-и-обещания")?.model).toBe("gpt-6-astra");
+    expect(verifierFor("claude-code", "необратимое")?.model).toBe("gpt-6-astra");
+    expect(verifierFor("claude-code", "сдача-артефакта")?.model).toBe("gpt-5.6-sol");
+    expect(verifierFor("claude-code", "общая-система")?.model).toBe("gpt-5.6-sol");
+    expect(verifierFor("codex", "правки-владельца")?.model).toBe("claude-sonnet-5");
+    expect(verifierFor("codex", "диагностика")?.model).toBe("claude-opus-5[1m]");
+  });
+
+  it("класс доезжает до решения, а не теряется по дороге", () => {
+    const дешёвый = classifyTask({
+      prompt: "собери презентацию для клиента",
+      parentProvider: "claude-code",
+    });
+    expect(дешёвый.model).toBe("gpt-5.6-sol");
+    const дорогой = classifyTask({
+      prompt: "посчитай сумму возврата по гарантии",
+      parentProvider: "claude-code",
+    });
+    expect(дорогой.model).toBe("gpt-6-astra");
   });
 
   it("не берётся за провайдера, для которого пары не задано", () => {
@@ -162,5 +187,26 @@ describe("решение о втором мозге", () => {
     expect(решение.pair).toBe(true);
     expect(решение.taskClass).toBe("общая-система");
     expect(решение.maxRounds).toBe(1);
+  });
+});
+
+describe("момент запуска проверки", () => {
+  it("необратимое проверяется параллельно с работой", () => {
+    // Иначе находка приходит, когда удаление уже случилось.
+    expect(проверятьРано("необратимое")).toBe(true);
+  });
+
+  it("остальное ждёт готового результата", () => {
+    // Зеркальная беда: на сдаче артефакта параллельный проверяющий смотрит
+    // рабочую папку до того, как автор что-то сделал, и проверяет пустоту.
+    for (const класс of [
+      "сдача-артефакта",
+      "деньги-и-обещания",
+      "общая-система",
+      "правки-владельца",
+      "диагностика",
+    ] as const) {
+      expect(проверятьРано(класс), класс).toBe(false);
+    }
   });
 });
