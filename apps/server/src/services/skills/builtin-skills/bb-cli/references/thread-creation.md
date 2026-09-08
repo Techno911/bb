@@ -18,7 +18,11 @@
   attachments, and `--section <id>` to add the new thread to a section. These
   flags pass host-readable absolute paths (or relative server-upload tokens)
   through to the runtime; they do not read files on the CLI machine.
-- Spawn creates a root thread unless you pass `--parent-thread`.
+- Inside a thread, spawn defaults to `BB_THREAD_ID` as its parent. `--no-parent`
+  is rejected there; outside a thread, root creation remains available. If a
+  parent is too deep, do the work in the current thread or explicitly select a
+  valid ancestor with `--parent-thread`, staying within the same task tree and
+  its permission boundaries. Do not detach work to bypass a depth error.
 - Use `bb thread fork <source-thread-id>` to clone a provider session. The
   fork inherits the source conversation in its timeline. It creates an idle
   fork in the source environment by default; add `--prompt`, select an existing
