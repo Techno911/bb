@@ -9,6 +9,7 @@ import {
 import {
   запросыЧеловека,
   значимыйЗапрос,
+  человекВедёт,
   отпечатокЗадачи,
   последнийЗапрос,
   шаговПослеЗапроса,
@@ -18,6 +19,7 @@ import {
 export {
   запросыЧеловека,
   значимыйЗапрос,
+  человекВедёт,
   отпечатокЗадачи,
   последнийЗапрос,
   шаговПослеЗапроса,
@@ -380,6 +382,7 @@ export default async function plugin(bb: BbPluginApi) {
       projectId: string | null;
       providerId: string | null;
       environmentId: string | null;
+      parentThreadId?: string | null;
     },
     момент: "рано" | "после",
   ): Promise<void> {
@@ -388,7 +391,7 @@ export default async function plugin(bb: BbPluginApi) {
       includeNestedRows: "true",
     });
     const запросы = запросыЧеловека(лента.rows as РядЛенты[]);
-    if (запросы.length === 0) return;
+    if (!человекВедёт(запросы, thread.parentThreadId != null)) return;
     const задача = значимыйЗапрос(запросы);
     if (задача === undefined) return;
 
@@ -596,12 +599,12 @@ export default async function plugin(bb: BbPluginApi) {
     for (const краткий of идущие) {
       const тред = await bb.sdk.threads.get({ threadId: краткий.id });
       try {
-        if (тред.parentThreadId != null) continue;
         const лента = await bb.sdk.threads.timeline({
           threadId: тред.id,
           includeNestedRows: "true",
         });
         const запросы = запросыЧеловека(лента.rows as РядЛенты[]);
+        if (!человекВедёт(запросы, тред.parentThreadId != null)) continue;
         const задача = значимыйЗапрос(запросы);
         if (задача === undefined) continue;
         const отпечаток = отпечатокЗадачи(задача);
@@ -721,8 +724,13 @@ export default async function plugin(bb: BbPluginApi) {
         };
         for (const ряд of лента.rows as РядЛенты[]) обойтиСостав(ряд);
 
+        // Пробник обязан судить теми же функциями, что и плагин: своя копия
+        // условия трижды за сессию показывала не то, что произойдёт на деле.
+        const ведёт = человекВедёт(запросы, тред.parentThreadId != null);
         const итог = {
           тред: threadId,
+          вложенный: тред.parentThreadId != null,
+          ведётЧеловек: ведёт,
           состав,
           провайдер: тред.providerId ?? null,
           строкЛенты: лента.rows.length,
@@ -749,9 +757,15 @@ export default async function plugin(bb: BbPluginApi) {
               .join(", ")}`,
             `Последний запрос: ${итог.последний ?? "человек ещё не писал"}`,
             `Класс: ${итог.класс ?? "—"}`,
-            итог.подключится
-              ? `Второй мозг ПОДКЛЮЧИТСЯ: ${итог.мощность}, раундов ${итог.раундов}`
-              : `Второй мозг промолчит: ${итог.почему ?? "нет запроса человека"}`,
+            !итог.ведётЧеловек
+              ? `Второй мозг не берётся: ${
+                  итог.вложенный
+                    ? "вложенный тред, человек в него сам не писал (задание при создании не в счёт)"
+                    : "человек ещё ничего не написал"
+                }`
+              : итог.подключится
+                ? `Второй мозг ПОДКЛЮЧИТСЯ: ${итог.мощность}, раундов ${итог.раундов}`
+                : `Второй мозг промолчит: ${итог.почему ?? "нет запроса человека"}`,
           ].join("\n"),
         };
       }
@@ -813,7 +827,6 @@ export default async function plugin(bb: BbPluginApi) {
   }): void => {
     void (async () => {
       try {
-        if (thread.parentThreadId != null) return;
         if (thread.visibility !== "visible") return;
         await запуститьПроверку(
           {
@@ -821,6 +834,7 @@ export default async function plugin(bb: BbPluginApi) {
             projectId: thread.projectId ?? null,
             providerId: thread.providerId ?? null,
             environmentId: thread.environmentId ?? null,
+            parentThreadId: thread.parentThreadId ?? null,
           },
           "рано",
         );
@@ -861,7 +875,6 @@ export default async function plugin(bb: BbPluginApi) {
           );
           if (пошёл) return;
         }
-        if (thread.parentThreadId != null) return;
         if (thread.visibility !== "visible") return;
         await запуститьПроверку(
           {
@@ -869,6 +882,7 @@ export default async function plugin(bb: BbPluginApi) {
             projectId: thread.projectId ?? null,
             providerId: thread.providerId ?? null,
             environmentId: thread.environmentId ?? null,
+            parentThreadId: thread.parentThreadId ?? null,
           },
           "после",
         );
