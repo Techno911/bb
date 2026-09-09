@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   classifyTask,
+  семействоМодели,
   запускатьВМомент,
   проверятьРано,
   verifierFor,
@@ -74,14 +75,34 @@ describe("решение о втором мозге", () => {
     expect(дорогой.model).toBe("gpt-6-astra");
   });
 
-  it("не берётся за провайдера, для которого пары не задано", () => {
+  it("незнакомый провайдер без проверки не остаётся", () => {
+    // 09.09.2026: в bb зарегистрированы claude-code, codex, pi и acp-cursor,
+    // а пара знала два. Для остальных проверяющий не назначался, то есть тред
+    // на новом провайдере молча оставался без второго мозга.
     const решение = classifyTask({
       prompt: "посчитай сумму договора",
       parentProvider: "pi",
     });
-    expect(решение.pair).toBe(false);
-    expect(решение.why).toContain("другого семейства не задан");
+    expect(решение.pair).toBe(true);
+    expect(решение.provider).toBe("claude-code");
   });
+
+  it("семейство считается по модели, а не по оболочке", () => {
+    // Cursor и Pi это оболочки: за ними стоит любая модель. Тред на Cursor с
+    // моделью Claude обязан проверяться моделью OpenAI, иначе выходит
+    // однородная пара, которая усиливает общую ошибку вместо того, чтобы её
+    // ловить.
+    expect(семействоМодели("claude-opus-5[1m]")).toBe("anthropic");
+    expect(семействоМодели("gpt-6-astra")).toBe("openai");
+    expect(семействоМодели("gemini-3.1-pro")).toBe("google");
+    expect(семействоМодели("grok-4.6")).toBe("xai");
+    expect(семействоМодели("composer-2.5")).toBe("иное");
+
+    expect(verifierFor("acp-cursor", "диагностика", "claude-sonnet-5")?.provider).toBe("codex");
+    expect(verifierFor("acp-cursor", "диагностика", "gemini-3.1-pro")?.provider).toBe("claude-code");
+    expect(verifierFor("pi", "диагностика", "gpt-6-astra")?.provider).toBe("claude-code");
+  });
+
 
   it("длинная задача со словом «покажи» рутиной не считается", () => {
     const решение = classifyTask({

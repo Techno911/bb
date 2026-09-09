@@ -383,6 +383,7 @@ export default async function plugin(bb: BbPluginApi) {
       providerId: string | null;
       environmentId: string | null;
       parentThreadId?: string | null;
+      model?: string;
     },
     момент: "рано" | "после",
   ): Promise<void> {
@@ -410,6 +411,7 @@ export default async function plugin(bb: BbPluginApi) {
     const решение: PairDecision = classifyTask({
       prompt: задача,
       parentProvider: thread.providerId ?? "",
+      ...(thread.model === undefined ? {} : { parentModel: thread.model }),
     });
     if (!решение.pair || решение.provider === undefined) {
       // Отметку на отказе НЕ ставим. Классификация это регулярка, гонять её
@@ -544,7 +546,10 @@ export default async function plugin(bb: BbPluginApi) {
     if (ожидание === undefined) return false;
     await хранилище.delete(`${КЛЮЧ_РАУНДА}${thread.id}`);
     if (thread.projectId === null) return false;
-    const проверяющий = verifierFor(thread.providerId ?? "");
+    const проверяющий = verifierFor(
+      thread.providerId ?? "",
+      ожидание.taskClass as never,
+    );
     if (проверяющий === undefined) return false;
 
     const ребёнок = await спавнитьПроверяющего({
