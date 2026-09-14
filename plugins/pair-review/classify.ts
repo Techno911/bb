@@ -224,6 +224,9 @@ export function семействоМодели(модель: string | undefined)
 function семействоПровайдера(провайдер: string): Семейство {
   if (провайдер === "claude-code" || провайдер === "anthropic") return "anthropic";
   if (провайдер === "codex") return "openai";
+  // Gemini подключён 14.09.2026 как кастомный ACP-агент на API-ключе:
+  // провайдер называется acp-gemini, за ним всегда семейство Google.
+  if (провайдер === "acp-gemini") return "google";
   return "иное";
 }
 

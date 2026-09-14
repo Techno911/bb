@@ -32,6 +32,15 @@ describe("решение о втором мозге", () => {
     }
   });
 
+  it("автора на Gemini проверяет Anthropic: семейство Google узнаётся по провайдеру", () => {
+    const решение = classifyTask({
+      prompt: "посчитай сумму возврата по гарантии для клиента",
+      parentProvider: "acp-gemini",
+    });
+    expect(решение.provider).toBe("claude-code");
+    expect(решение.model).toBe("claude-opus-5[1m]");
+  });
+
   it("зовёт проверяющего на диагностике: вторая модель ищет иначе", () => {
     const решение = classifyTask({
       prompt: "почему упали треды, разберись что сломалось",
