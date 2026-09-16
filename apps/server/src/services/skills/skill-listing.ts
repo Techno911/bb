@@ -209,10 +209,107 @@ function listBbPluginSkills(deps: AppDeps): SkillSummary[] {
     .sort(compareSkillSummaries);
 }
 
-export async function listProjectSkills(
+/**
+ * The same physical skill is often registered under more than one root: a
+ * shared-user copy in `.bb/shared-provider-skills` is frequently mirrored
+ * into a provider's own native root (e.g. `~/.claude/skills`) so the
+ * provider's own tooling can see it outside bb. Each registration produces
+ * its own SkillSummary with a distinct filePath, so a plain filePath dedup
+ * (as done inside assembleSkillList for a single provider scan) does not
+ * catch it. Dedup here by the SKILL.md content digest instead of by name:
+ * two unrelated skills can legitimately share a name, and merging those
+ * would silently hide one of them.
+ */
+export function dedupSkillSummariesByDigest(
+  skills: readonly SkillSummary[],
+  digestByFilePath: ReadonlyMap<string, string>,
+): SkillSummary[] {
+  const bestByDigest = new Map<string, SkillSummary>();
+  const passthrough: SkillSummary[] = [];
+  for (const skill of skills) {
+    const digest = digestByFilePath.get(skill.filePath);
+    if (digest === undefined) {
+      passthrough.push(skill);
+      continue;
+    }
+    const existing = bestByDigest.get(digest);
+    if (
+      existing === undefined ||
+      SKILL_SCOPE_ORDER.indexOf(skill.scope) <
+        SKILL_SCOPE_ORDER.indexOf(existing.scope)
+    ) {
+      bestByDigest.set(digest, skill);
+    }
+  }
+  return [...bestByDigest.values(), ...passthrough];
+}
+
+/**
+ * bb-owned and plugin skills live on the bb server's own local disk (their
+ * filePath is resolvable with plain fs), so their digest is computed
+ * directly instead of round-tripping through a host RPC.
+ */
+async function computeLocalSkillContentDigest(
+  filePath: string,
+): Promise<string | null> {
+  try {
+    const contents = await fs.readFile(filePath);
+    return createHash("sha256").update(contents).digest("hex");
+  } catch {
+    // A skill we can't read the content of is left un-deduped: showing an
+    // extra row is safer than silently merging on a guess.
+    return null;
+  }
+}
+
+async function buildLocalSkillContentDigestIndex(
+  skills: readonly SkillSummary[],
+): Promise<Map<string, string>> {
+  const uniqueFilePaths = [...new Set(skills.map((skill) => skill.filePath))];
+  const entries = await Promise.all(
+    uniqueFilePaths.map(async (filePath) => {
+      const digest = await computeLocalSkillContentDigest(filePath);
+      return digest === null ? null : ([filePath, digest] as const);
+    }),
+  );
+  return new Map(
+    entries.filter((entry): entry is readonly [string, string] => entry !== null),
+  );
+}
+
+/**
+ * Provider-native scans already read every SKILL.md once (to parse its
+ * frontmatter) and carry the resulting digest on the DiscoveredSkill, so the
+ * digest for those scopes is free — no second read over RPC.
+ */
+function collectProviderSkillDigests(
+  perProvider: readonly ProviderSkillDiscovery[],
+): Map<string, string> {
+  const digestByFilePath = new Map<string, string>();
+  for (const { skills } of perProvider) {
+    for (const skill of skills) {
+      if (skill.contentSha256 !== null && skill.contentSha256 !== undefined) {
+        digestByFilePath.set(skill.filePath, skill.contentSha256);
+      }
+    }
+  }
+  return digestByFilePath;
+}
+
+interface ProjectSkillRegistrations {
+  /** Every registration a skill has, one row per (scope, root) pair — not
+   * deduped by content. Reads/writes/deletes resolve a skill by its opaque
+   * id, including ids for registrations that the deduped display list in
+   * listProjectSkills later collapses away, so this raw list is what
+   * resolveProjectSkill searches. */
+  skills: SkillSummary[];
+  digestByFilePath: Map<string, string>;
+}
+
+async function listAllProjectSkillRegistrations(
   deps: AppDeps,
   args: { workspace: CommandWorkspace },
-): Promise<SkillSummary[]> {
+): Promise<ProjectSkillRegistrations> {
   const skillProviders = deps.providerRegistry
     .list()
     .filter(providerHasNativeRootSurface);
@@ -235,12 +332,39 @@ export async function listProjectSkills(
       cwd: args.workspace.cwd,
     }),
   ]);
-  return [
-    ...assembleSkillList(perProvider),
-    ...sharedSkills.summaries,
-    ...listServerOwnedSkills(deps),
-    ...listBbPluginSkills(deps),
-  ].sort(compareSkillSummaries);
+  const serverOwned = listServerOwnedSkills(deps);
+  const plugin = listBbPluginSkills(deps);
+  const localDigestByFilePath = await buildLocalSkillContentDigestIndex([
+    ...serverOwned,
+    ...plugin,
+  ]);
+  const digestByFilePath = new Map([
+    ...collectProviderSkillDigests(perProvider),
+    ...sharedSkills.digestByFilePath,
+    ...localDigestByFilePath,
+  ]);
+  return {
+    skills: [
+      ...assembleSkillList(perProvider),
+      ...sharedSkills.summaries,
+      ...serverOwned,
+      ...plugin,
+    ],
+    digestByFilePath,
+  };
+}
+
+export async function listProjectSkills(
+  deps: AppDeps,
+  args: { workspace: CommandWorkspace },
+): Promise<SkillSummary[]> {
+  const { skills, digestByFilePath } = await listAllProjectSkillRegistrations(
+    deps,
+    args,
+  );
+  return dedupSkillSummariesByDigest(skills, digestByFilePath).sort(
+    compareSkillSummaries,
+  );
 }
 
 function isServerOwnedSkill(deps: AppDeps, skill: SkillSummary): boolean {
@@ -365,7 +489,9 @@ async function resolveProjectSkill(
     workspace: CommandWorkspace;
   },
 ): Promise<SkillSummary> {
-  const skills = await listProjectSkills(deps, { workspace: args.workspace });
+  const { skills } = await listAllProjectSkillRegistrations(deps, {
+    workspace: args.workspace,
+  });
   const match = skills.find((skill) => skill.id === args.skillId);
   if (!match) {
     throw new ApiError(404, "not_found", "Skill not found");

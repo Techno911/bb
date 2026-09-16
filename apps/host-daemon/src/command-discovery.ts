@@ -81,6 +81,7 @@ interface ParsedFrontmatter {
   name: string | null;
   description: string | null;
   argumentHint: string | null;
+  contentSha256: string | null;
 }
 
 interface SkillFileMatch {
@@ -141,24 +142,29 @@ async function parseFrontmatter(filePath: string): Promise<ParsedFrontmatter> {
   try {
     content = await fs.readFile(filePath, "utf8");
   } catch {
-    return { name: null, description: null, argumentHint: null };
+    return { name: null, description: null, argumentHint: null, contentSha256: null };
   }
+  // Computed once here, from the same read used for frontmatter, so a
+  // content-based dedup upstream (bb-server's skill listing) never needs a
+  // second round-trip just to hash a SKILL.md it already scanned.
+  const contentSha256 = createHash("sha256").update(content, "utf8").digest("hex");
 
   if (!hasSupportedFrontmatterDelimiter(content)) {
-    return { name: null, description: null, argumentHint: null };
+    return { name: null, description: null, argumentHint: null, contentSha256 };
   }
 
   let data: Record<string, unknown>;
   try {
     data = matter(content).data;
   } catch {
-    return { name: null, description: null, argumentHint: null };
+    return { name: null, description: null, argumentHint: null, contentSha256 };
   }
 
   return {
     name: readFrontmatterString(data, "name"),
     description: readFrontmatterString(data, "description"),
     argumentHint: readFrontmatterString(data, "argument-hint"),
+    contentSha256,
   };
 }
 
@@ -517,6 +523,7 @@ function buildSkillRecord(
     filePath: match.filePath,
     rootKind: root.rootKind,
     linked: match.linked,
+    contentSha256: match.frontmatter.contentSha256,
   };
 }
 

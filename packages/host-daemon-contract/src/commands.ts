@@ -720,6 +720,11 @@ const discoveredSkillSchema = z.object({
   filePath: z.string(),
   rootKind: skillRootKindSchema,
   linked: z.boolean(),
+  // sha256 of the raw SKILL.md bytes, computed once while reading the file
+  // for frontmatter. Optional/nullable so older host-daemon builds and
+  // hand-built test fixtures that predate this field keep validating; a
+  // missing digest just means the caller can't dedup that entry by content.
+  contentSha256: z.string().nullable().optional(),
 });
 export type DiscoveredSkill = z.infer<typeof discoveredSkillSchema>;
 

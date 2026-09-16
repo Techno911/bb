@@ -14,6 +14,7 @@ import type { SharedInjectedSkillSource } from "./injected-skills.js";
 interface ResolvedSharedSkills {
   runtimeSources: SharedInjectedSkillSource[];
   summaries: SkillSummary[];
+  digestByFilePath: ReadonlyMap<string, string>;
 }
 
 export function hostPathDirname(filePath: string): string {
@@ -25,7 +26,11 @@ export function hostPathDirname(filePath: string): string {
 function toSharedSkill(
   deps: Pick<LoggedWorkSessionDeps, "logger">,
   skill: DiscoveredSkill,
-): { runtimeSource: SharedInjectedSkillSource; summary: SkillSummary } | null {
+): {
+  runtimeSource: SharedInjectedSkillSource;
+  summary: SkillSummary;
+  contentSha256: string | null;
+} | null {
   if (
     (skill.rootKind !== "shared-user" && skill.rootKind !== "shared-project") ||
     skill.description === null
@@ -64,6 +69,7 @@ function toSharedSkill(
       manageable: false,
       registrySkillId: null,
     },
+    contentSha256: skill.contentSha256 ?? null,
   };
 }
 
@@ -73,7 +79,7 @@ export async function resolveSharedSkills(
 ): Promise<ResolvedSharedSkills> {
   const roots = deps.config.sharedSkillRoots;
   if (roots.user.length === 0 && roots.project.length === 0) {
-    return { runtimeSources: [], summaries: [] };
+    return { runtimeSources: [], summaries: [], digestByFilePath: new Map() };
   }
   const result = await callHostRetryableOnlineRpc(deps, {
     hostId: args.hostId,
@@ -107,8 +113,15 @@ export async function resolveSharedSkills(
     names.add(entry.runtimeSource.name);
     resolved.push(entry);
   }
+  const digestByFilePath = new Map<string, string>();
+  for (const entry of resolved) {
+    if (entry.contentSha256 !== null) {
+      digestByFilePath.set(entry.summary.filePath, entry.contentSha256);
+    }
+  }
   return {
     runtimeSources: resolved.map((entry) => entry.runtimeSource),
     summaries: resolved.map((entry) => entry.summary),
+    digestByFilePath,
   };
 }
