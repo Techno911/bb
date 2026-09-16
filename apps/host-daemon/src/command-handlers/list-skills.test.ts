@@ -146,6 +146,7 @@ describe("resolveSkillScanRoots + discoverSkills", () => {
       filePath: files["proj-bb"],
       rootKind: "bb-project",
       linked: false,
+      contentSha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
     });
     expect(byName(skills, "data-bb")).toBeUndefined();
     expect(byName(skills, "proj-agent")?.rootKind).toBe("provider-project");
