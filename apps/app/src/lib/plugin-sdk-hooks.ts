@@ -71,7 +71,6 @@ import {
 import {
   AUTOMATIONS_PLUGIN_ID,
   getPluginPanelRoutePath,
-  getProjectComposeRoutePath,
   getThreadRoutePath,
   AUTOMATION_EDIT_ROUTE_PATH,
 } from "@/lib/route-paths";
@@ -352,11 +351,12 @@ export function useBbNavigate(): BbNavigate {
     },
     [navigate],
   );
+  const openNewThreadPane = useOpenNewThreadPane();
   const toProject = useCallback(
     (projectId: string) => {
-      void navigate(getProjectComposeRoutePath(projectId));
+      openNewThreadPane({ projectId });
     },
-    [navigate],
+    [openNewThreadPane],
   );
   const toPluginPanel = useCallback(
     (path: string, options?: { subPath?: string; replace?: boolean }) => {
@@ -369,7 +369,6 @@ export function useBbNavigate(): BbNavigate {
     },
     [navigate, pluginId],
   );
-  const openNewThreadPane = useOpenNewThreadPane();
   const toCompose = useCallback(
     (options?: { initialPrompt?: string; focusPrompt?: boolean }) => {
       const replacesAutomationEditRoute =

@@ -1,4 +1,5 @@
 import { usePendingAttachmentUploads } from "./usePendingAttachmentUploads";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import { useInitialPromptDraft } from "./mentions/initial-prompt-draft";
 import { ProviderRequirementBanner } from "./banner/ProviderRequirementBanner";
 import { Button } from "@bb/shared-ui/button";
@@ -105,11 +106,7 @@ import {
   type PromptDraftAttachment,
   type PromptDraftState,
 } from "@bb/client-core";
-import {
-  getProjectComposeRoutePath,
-  getThreadRoutePath,
-  isProjectlessProjectId,
-} from "@/lib/route-paths";
+import { getThreadRoutePath, isProjectlessProjectId } from "@/lib/route-paths";
 import { sdk } from "@/lib/sdk";
 import {
   buildReuseThreadOptions,
@@ -462,6 +459,7 @@ export function NewThreadComposer({
   children,
 }: NewThreadComposerProps) {
   const navigate = useNavigate();
+  const openNewThreadPane = useOpenNewThreadPane();
   const [localPromptBoxFocusRequest, setLocalPromptBoxFocusRequest] = useState<
     number | null
   >(null);
@@ -673,7 +671,11 @@ export function NewThreadComposer({
         threads: [],
       },
     ];
-  }, [seededReuseEnvironmentRow, threadDerivedReuseOptions, worktreeHostNameById]);
+  }, [
+    seededReuseEnvironmentRow,
+    threadDerivedReuseOptions,
+    worktreeHostNameById,
+  ]);
   const { value: storedMachineId, setValue: setStoredMachineId } =
     usePromptBoxMachinePreference(projectId);
   const [activeSeedSignature, setActiveSeedSignature] = useState(seedSignature);
@@ -1345,7 +1347,13 @@ export function NewThreadComposer({
         setIsUploading(pendingUploadCountRef.current > 0);
       }
     },
-    [projectId, promptDraft, uploadPromptAttachment, startUploads, finishUploads],
+    [
+      projectId,
+      promptDraft,
+      uploadPromptAttachment,
+      startUploads,
+      finishUploads,
+    ],
   );
   const changeProject = useCallback(
     async (nextProjectId: string | null): Promise<ProjectChangeOutcome> => {
@@ -1431,11 +1439,11 @@ export function NewThreadComposer({
           );
       }
       if (resource.kind === "project") {
-        return () => navigate(getProjectComposeRoutePath(resource.projectId));
+        return () => openNewThreadPane({ projectId: resource.projectId });
       }
       return null;
     },
-    [navigate, projectId],
+    [openNewThreadPane, navigate, projectId],
   );
   const [commandState, setCommandState] = useState<{
     query: string | null;

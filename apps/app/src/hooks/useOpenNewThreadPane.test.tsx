@@ -27,8 +27,9 @@ afterEach(() => {
 
 const srcRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-// Files that may name the compose route without starting a thread: the hook
-// itself, route plumbing, and redirects after a delete or a settings exit.
+// Files that may name a compose route without starting a thread: the hook
+// itself, route plumbing, the project breadcrumb, the project link handed to
+// plugins as data, and redirects after a delete or a settings exit.
 const ALLOWED_COMPOSE_ROUTE_FILES = [
   "hooks/useOpenNewThreadPane.ts",
   "lib/route-paths.ts",
@@ -42,6 +43,8 @@ const ALLOWED_COMPOSE_ROUTE_FILES = [
   "components/tools/PluginCapabilities.tsx",
   "hooks/cache-owners/resource-route-owner.ts",
   "hooks/useAppSettingsRouteMemory.ts",
+  "lib/plugin-sidebar-hooks.ts",
+  "views/SplitWorkspaceRoute.tsx",
 ];
 
 function listSourceFiles(directory: string): string[] {
@@ -129,7 +132,9 @@ describe("new thread entry points", () => {
   it("routes every thread creation through the pane-opening hook", () => {
     const offenders = listSourceFiles(srcRoot)
       .filter((filePath) =>
-        readFileSync(filePath, "utf8").includes("getRootComposeRoutePath"),
+        /get(?:Root|Project|LegacyProject)ComposeRoutePath/.test(
+          readFileSync(filePath, "utf8"),
+        ),
       )
       .map((filePath) => relative(srcRoot, filePath))
       .filter((filePath) => !ALLOWED_COMPOSE_ROUTE_FILES.includes(filePath));

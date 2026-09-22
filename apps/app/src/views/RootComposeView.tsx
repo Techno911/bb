@@ -1,4 +1,5 @@
 import { useInitialPromptDraft } from "@/components/promptbox/mentions/initial-prompt-draft";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -96,7 +97,6 @@ import {
 } from "./root-compose-initial-prompt";
 import {
   getThreadRoutePath,
-  getProjectComposeRoutePath,
   getRootComposeRoutePath,
   isRoutePath,
 } from "@/lib/route-paths";
@@ -667,6 +667,7 @@ function RootComposeSurface({
   );
   const location = useLocation();
   const navigate = useNavigate();
+  const openNewThreadPane = useOpenNewThreadPane();
   const isPointerCoarse = usePointerCoarse();
   const quickCreateProject = useQuickCreateProjectController();
   const {
@@ -1237,7 +1238,7 @@ function RootComposeSurface({
           );
       }
       if (resource.kind === "project") {
-        return () => navigate(getProjectComposeRoutePath(resource.projectId));
+        return () => openNewThreadPane({ projectId: resource.projectId });
       }
       if (resource.kind !== "path" || resource.entryKind !== "file") {
         return null;
@@ -1273,6 +1274,7 @@ function RootComposeSurface({
       };
     },
     [
+      openNewThreadPane,
       isProjectless,
       handleOpenLiveFilePreview,
       navigate,

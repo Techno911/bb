@@ -1,11 +1,9 @@
-import type { KeyboardEvent, MouseEvent } from "react";
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { PromptMentionResource, PromptTextMention } from "@bb/domain";
 import { RouteAnchor } from "@/components/ui/app-route-anchor.js";
-import {
-  getProjectComposeRoutePath,
-  getThreadRoutePath,
-} from "@/lib/route-paths";
+import { getThreadRoutePath } from "@/lib/route-paths";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import { cn } from "@bb/shared-ui/lib/utils";
 import {
   PROMPT_MENTION_PILL_CLASS,
@@ -181,14 +179,14 @@ export function PromptMentionPill({
 
   if (resource.kind === "project") {
     return (
-      <Link
+      <ProjectMentionLink
         className={mentionPillClassName(true)}
-        {...clipboardAttributes}
-        to={getProjectComposeRoutePath(resource.projectId)}
+        clipboardAttributes={clipboardAttributes}
+        projectId={resource.projectId}
         title={title}
       >
         {labelNode}
-      </Link>
+      </ProjectMentionLink>
     );
   }
 
@@ -233,4 +231,35 @@ export function resolveThreadMentionResource(
     }
   }
   return { kind: "thread", threadId, label: threadId };
+}
+
+/** A project mention opens that project's composer beside the current pane. */
+function ProjectMentionLink({
+  children,
+  className,
+  clipboardAttributes,
+  projectId,
+  title,
+}: {
+  children: ReactNode;
+  className: string;
+  clipboardAttributes: ReturnType<typeof promptMentionClipboardDataAttributes>;
+  projectId: string;
+  title: string | undefined;
+}) {
+  const openNewThreadPane = useOpenNewThreadPane();
+  return (
+    <button
+      type="button"
+      className={className}
+      {...clipboardAttributes}
+      title={title}
+      onClick={(event) => {
+        event.preventDefault();
+        openNewThreadPane({ projectId });
+      }}
+    >
+      {children}
+    </button>
+  );
 }
