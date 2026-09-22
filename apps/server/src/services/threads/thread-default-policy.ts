@@ -330,6 +330,19 @@ export async function resolveCreateThreadEnvironment(
     if (parentEnvironment === null) {
       throw new Error("Parent thread environment is missing");
     }
+    // A managed worktree needs a git checkout to branch from. When the parent
+    // runs straight in a plain folder of the same project, a child has nothing
+    // to branch from and provisioning dies before the first turn (06.09.2026:
+    // a second opinion in a non-git, Cyrillic-named folder failed with "Cannot
+    // derive repository directory name"). Such a child shares the parent's
+    // folder, exactly as the parent itself does.
+    if (
+      parentEnvironment.environmentProviderId === null &&
+      !parentEnvironment.providerOwnsPath &&
+      !parentEnvironment.isGitRepo
+    ) {
+      return { type: "reuse", environmentId: parentEnvironment.id };
+    }
     return {
       type: "provider",
       environmentProviderId: requireDefaultEnvironmentProvider(

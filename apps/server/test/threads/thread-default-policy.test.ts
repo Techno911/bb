@@ -326,6 +326,76 @@ describe("resolveCreateThreadEnvironment", () => {
     });
   });
 
+  it("shares a plain-folder parent environment instead of a worktree", async () => {
+    await withTestHarness(async (harness) => {
+      installFakeGitWorktreeProvider();
+      const { host } = seedHostSession(harness.deps, {
+        id: "host-plain-folder",
+      });
+      const { project } = seedProjectWithSource(harness.deps, {
+        hostId: host.id,
+        path: "/tmp/plain-folder-source",
+      });
+      const parentEnvironment = createEnvironment(harness.db, harness.hub, {
+        projectId: project.id,
+        hostId: host.id,
+        path: "/tmp/Чирков и партнеры",
+        providerOwnsPath: false,
+        isGitRepo: false,
+        status: "ready",
+        environmentProvider: null,
+      });
+      await expect(
+        resolveCreateThreadEnvironment(harness.deps, {
+          parentThread: makeParentThread({
+            projectId: project.id,
+            environmentId: parentEnvironment.id,
+          }),
+          projectId: project.id,
+          requestedEnvironment: { type: "project-default" },
+        }),
+      ).resolves.toEqual({
+        type: "reuse",
+        environmentId: parentEnvironment.id,
+      });
+    });
+  });
+
+  it("still provisions a worktree when the parent folder is a git checkout", async () => {
+    await withTestHarness(async (harness) => {
+      installFakeGitWorktreeProvider();
+      const { host } = seedHostSession(harness.deps, { id: "host-git-parent" });
+      const { project } = seedProjectWithSource(harness.deps, {
+        hostId: host.id,
+        path: "/tmp/git-parent-source",
+      });
+      const parentEnvironment = createEnvironment(harness.db, harness.hub, {
+        projectId: project.id,
+        hostId: host.id,
+        path: "/tmp/git-parent",
+        providerOwnsPath: false,
+        isGitRepo: true,
+        status: "ready",
+        environmentProvider: null,
+      });
+      await expect(
+        resolveCreateThreadEnvironment(harness.deps, {
+          parentThread: makeParentThread({
+            projectId: project.id,
+            environmentId: parentEnvironment.id,
+          }),
+          projectId: project.id,
+          requestedEnvironment: { type: "project-default" },
+        }),
+      ).resolves.toEqual({
+        type: "provider",
+        environmentProviderId: "git-worktree",
+        machine: { type: "existing", hostId: host.id },
+        inputs: { branch: { kind: "default" } },
+      });
+    });
+  });
+
   it("uses a fresh worktree on the parent's machine for a project child", async () => {
     await withTestHarness(async (harness) => {
       installFakeGitWorktreeProvider();
