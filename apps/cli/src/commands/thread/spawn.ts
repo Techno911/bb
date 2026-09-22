@@ -124,11 +124,12 @@ export function resolveSpawnParentThreadId(args: {
   if (explicitParentThreadId) {
     return explicitParentThreadId;
   }
-  // A thread spawned from inside another thread continues that thread's work
-  // (a second opinion, a review, a handoff), so it is parented by default and
-  // lands under its parent in the sidebar instead of beside it. --no-parent
-  // opts out for a genuinely unrelated thread.
   if (args.noParent) {
+    if (resolveContextThreadId()) {
+      throw new Error(
+        "--no-parent is unavailable inside a thread. Keep delegated work in its existing hierarchy: use --parent-thread with a valid ancestor, or complete the work in this thread. Do not detach work to bypass the hierarchy depth limit.",
+      );
+    }
     return undefined;
   }
   return resolveContextThreadId();
@@ -373,7 +374,7 @@ export function registerSpawnCommand(
     )
     .option(
       "--no-parent",
-      "Spawn an unrelated thread: do not parent it to BB_THREAD_ID",
+      "Spawn a root thread only outside a BB thread (BB_THREAD_ID must be absent)",
     )
     .option("--provider <id>", PROVIDER_HELP)
     .option(

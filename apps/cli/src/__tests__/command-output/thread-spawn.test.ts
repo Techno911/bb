@@ -763,9 +763,34 @@ describe("bb thread spawn command output", () => {
     });
   });
 
-  it("bb thread spawn --no-parent keeps the thread unrelated to BB_THREAD_ID", async () => {
-    vi.stubEnv("BB_PROJECT_ID", "proj-1");
+  it("rejects --no-parent inside a thread before creating an orphan", async () => {
     vi.stubEnv("BB_THREAD_ID", "thread-context-parent");
+    const post = vi.fn();
+    stubServerApi({ "v1.threads.$post": post });
+
+    await expect(
+      runCommand(
+        [
+          "thread",
+          "spawn",
+          "--project",
+          "proj-1",
+          "--prompt",
+          "audit",
+          "--no-parent",
+        ],
+        register,
+      ),
+    ).rejects.toThrow("process.exit:1");
+    expect(post).not.toHaveBeenCalled();
+    expect(collectLogLines(vi.mocked(console.error)).join("\n")).toContain(
+      "--no-parent is unavailable inside a thread",
+    );
+  });
+
+  it("bb thread spawn --no-parent permits standalone root creation", async () => {
+    vi.stubEnv("BB_PROJECT_ID", "proj-1");
+    vi.stubEnv("BB_THREAD_ID", undefined);
     const thread: domain.Thread = fixtures.makeThread({
       id: "thread-2",
       projectId: "proj-1",

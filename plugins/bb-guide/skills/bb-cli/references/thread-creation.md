@@ -37,7 +37,11 @@ worktree` only; a provider takes its branch through `--environment-inputs`.
   Both flags upload absolute paths and `file:` URLs from the CLI machine
   before sending and pass relative server-upload tokens through unchanged.
   Use an absolute path (for example, `--file "$PWD/report.pdf"`) for local files.
-- Spawn creates a root thread unless you pass `--parent-thread`.
+- Inside a thread, spawn defaults to `BB_THREAD_ID` as its parent. `--no-parent`
+  is rejected there; outside a thread, root creation remains available. If a
+  parent is too deep, do the work in the current thread or explicitly select a
+  valid ancestor with `--parent-thread`, staying within the same task tree and
+  its permission boundaries. Do not detach work to bypass a depth error.
 - Handoff can target any model, including one from the source provider. In
   the follow-up picker, choose **Handoff to new thread**; **Exit handoff** in
   the picker or composer restores the source execution settings and retains
