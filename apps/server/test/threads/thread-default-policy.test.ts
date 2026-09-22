@@ -343,7 +343,14 @@ describe("resolveCreateThreadEnvironment", () => {
         providerOwnsPath: false,
         isGitRepo: false,
         status: "ready",
-        environmentProvider: null,
+        environmentProvider: {
+          environmentProviderId: "project-checkout",
+          instanceKey: null,
+          selection: {
+            machine: { type: "existing", hostId: host.id },
+            inputs: { path: "/tmp/Чирков и партнеры" },
+          },
+        },
       });
       await expect(
         resolveCreateThreadEnvironment(harness.deps, {
@@ -376,7 +383,14 @@ describe("resolveCreateThreadEnvironment", () => {
         providerOwnsPath: false,
         isGitRepo: true,
         status: "ready",
-        environmentProvider: null,
+        environmentProvider: {
+          environmentProviderId: "project-checkout",
+          instanceKey: null,
+          selection: {
+            machine: { type: "existing", hostId: host.id },
+            inputs: { path: "/tmp/git-parent" },
+          },
+        },
       });
       await expect(
         resolveCreateThreadEnvironment(harness.deps, {

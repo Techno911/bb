@@ -336,11 +336,7 @@ export async function resolveCreateThreadEnvironment(
     // a second opinion in a non-git, Cyrillic-named folder failed with "Cannot
     // derive repository directory name"). Such a child shares the parent's
     // folder, exactly as the parent itself does.
-    if (
-      parentEnvironment.environmentProviderId === null &&
-      !parentEnvironment.providerOwnsPath &&
-      !parentEnvironment.isGitRepo
-    ) {
+    if (!parentEnvironment.providerOwnsPath && !parentEnvironment.isGitRepo) {
       return { type: "reuse", environmentId: parentEnvironment.id };
     }
     return {
