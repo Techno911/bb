@@ -16,12 +16,6 @@ export interface OpenNewThreadPaneArgs {
 
 export type OpenNewThreadPane = (args?: OpenNewThreadPaneArgs) => void;
 
-/**
- * The single way to start a thread: the composer opens in a pane beside the
- * focused one (or focuses the composer pane that is already open), so
- * whatever the person was watching stays open. Compact viewports keep the
- * single-page behavior.
- */
 export function useOpenNewThreadPane(): OpenNewThreadPane {
   const store = useStore();
   const navigate = useNavigate();

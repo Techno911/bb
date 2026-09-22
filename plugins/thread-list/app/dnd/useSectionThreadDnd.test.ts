@@ -810,9 +810,6 @@ describe("worktree group section dragging", () => {
   });
 });
 
-// Project mode: sidebar groups are projects, and a thread dropped onto another
-// group changes its projectId. The group is built the way buildGroupSectionItem
-// builds it in ProjectList, so the test does not check its own fixture.
 function buildProjectGroupItem(
   projectId: string,
   name: string,

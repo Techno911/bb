@@ -554,8 +554,6 @@ function ThreadRowComponent({
             </span>
           )}
           {thread.parentThreadId !== null && !isEditing ? (
-            // A child thread usually exists to run the same work on another
-            // model (a review, a second opinion), so the row says which one.
             <span
               data-sidebar-thread-model=""
               title={`${thread.providerId}${thread.model ? ` · ${thread.model}` : ""}`}

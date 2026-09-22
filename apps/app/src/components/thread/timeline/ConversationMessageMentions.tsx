@@ -233,7 +233,6 @@ export function resolveThreadMentionResource(
   return { kind: "thread", threadId, label: threadId };
 }
 
-/** A project mention opens that project's composer beside the current pane. */
 function ProjectMentionLink({
   children,
   className,

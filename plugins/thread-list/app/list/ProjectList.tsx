@@ -454,10 +454,6 @@ function useGroupedModeThreadDnd({
   collapsedThreadIds: Set<string>;
   compareThreads: ThreadComparator;
   draftThreadIds: ReadonlySet<string>;
-  /**
-   * In project mode a sidebar group is a project, so dropping a thread onto
-   * another group changes its projectId. Other modes address a section.
-   */
   moveTarget?: SectionThreadDndMoveTarget;
   onToggleThreadCollapsed: ToggleCollapsedId;
   order: readonly SidebarSectionId[];
@@ -667,8 +663,6 @@ function ProjectModeSections({
     collapsedThreadIds,
     compareThreads,
     draftThreadIds,
-    // Groups in this mode are projects, so a thread dropped onto another group
-    // moves into that project instead of changing section.
     moveTarget: "project",
     onToggleThreadCollapsed,
     order,

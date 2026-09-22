@@ -27,9 +27,6 @@ afterEach(() => {
 
 const srcRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-// Files that may name a compose route without starting a thread: the hook
-// itself, route plumbing, the project breadcrumb, the project link handed to
-// plugins as data, and redirects after a delete or a settings exit.
 const ALLOWED_COMPOSE_ROUTE_FILES = [
   "hooks/useOpenNewThreadPane.ts",
   "lib/route-paths.ts",

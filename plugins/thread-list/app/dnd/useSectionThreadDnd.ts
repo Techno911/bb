@@ -96,11 +96,6 @@ export interface SectionThreadDndState {
   pinnedReorderPending: boolean;
 }
 
-/**
- * How the container a thread lands in is addressed: by section (the default)
- * or by project. In project mode the sidebar groups are projects, so moving a
- * thread between them changes its projectId rather than its sectionId.
- */
 export type SectionThreadDndMoveTarget = "section" | "project";
 
 interface UseSectionThreadDndArgs {
@@ -134,11 +129,6 @@ interface SectionThreadDndLookup {
   nestParentIdByItemId: Map<string, string>;
 }
 
-/**
- * Where the thread goes. The destination container lives either in `sectionId`
- * (the usual mode) or in `projectId` (moveTarget: "project"); only the set
- * field reaches the server.
- */
 export type SectionThreadDropDecision =
   | {
       kind: "move-group";
@@ -578,13 +568,6 @@ interface ProjectThreadDropContext {
   toParentKey: string;
 }
 
-/**
- * Project mode: a sidebar group is a project, and its id in
- * `sectionIdByParentKey` is the projectId. Dropping onto another project's
- * group moves the thread (with its descendants, server side) there; dropping
- * into the personal container, which has no project id, is not a move and
- * only detaches or unpins the thread.
- */
 function resolveProjectThreadDropDecision(
   lookup: SectionThreadDndLookup,
   activeThread: ThreadListEntry,
