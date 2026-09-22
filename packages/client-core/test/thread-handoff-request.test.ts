@@ -183,6 +183,7 @@ describe("buildThreadHandoffCreateRequest", () => {
         },
       ],
       model: "claude-opus-5",
+      parentThreadId: "thr_source",
       permissionMode: "auto",
       projectId: "proj_source",
       providerId: "claude-code",
@@ -201,6 +202,7 @@ describe("buildThreadHandoffCreateRequest", () => {
     });
 
     expect(request?.environment).toEqual({ type: "project-default" });
+    expect(request?.parentThreadId).toBe("thr_source");
     expect(request).not.toHaveProperty("serviceTier");
     expect(request?.executionInputSources).toEqual({
       providerId: "explicit",

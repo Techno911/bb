@@ -152,6 +152,7 @@ export function buildThreadHandoffCreateRequest({
     },
     input,
     model: execution.model,
+    parentThreadId: seed.sourceThreadId,
     permissionMode: execution.permissionMode,
     projectId: seed.projectId,
     providerId: execution.providerId,

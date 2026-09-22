@@ -440,6 +440,11 @@ export type ThreadQueuedWork = z.infer<typeof threadQueuedWorkSchema>;
 export const threadListEntrySchema = threadWithRuntimeSchema.extend({
   activity: threadActivityStateSchema,
   queuedWork: threadQueuedWorkSchema,
+  /**
+   * The model pinned to this thread, when one is. Sidebar rows use it to say
+   * which model a child thread runs on; null falls back to the provider name.
+   */
+  model: z.string().nullable().optional(),
   pinSortKey: z.string().nullable(),
   hasPendingInteraction: z.boolean(),
   environmentHostId: z.string().nullable(),

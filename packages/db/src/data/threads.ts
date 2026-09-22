@@ -601,6 +601,7 @@ export interface ThreadWithPendingInteractionState extends ThreadRow {
   environmentPath: string | null;
   environmentProviderId: string | null;
   hasPendingInteraction: boolean;
+  model?: string | null;
 }
 
 interface ThreadWithPendingInteractionStateRow extends ThreadRow {
@@ -768,6 +769,7 @@ function toThreadWithPendingInteractionState(
   } = row;
   return {
     ...thread,
+    model: thread.modelOverride ?? null,
     environmentBranchName,
     environmentHostId,
     environmentIsWorktree,
