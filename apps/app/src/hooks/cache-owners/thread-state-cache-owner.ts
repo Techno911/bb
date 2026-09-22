@@ -63,7 +63,8 @@ interface BeginThreadPinTransactionArgs extends ThreadIdCacheArgs {
 }
 
 interface BeginUnpinAndMoveThreadTransactionArgs extends ThreadIdCacheArgs {
-  sectionId: string | null;
+  projectId?: string;
+  sectionId?: string | null;
 }
 
 interface BeginThreadReadStateTransactionArgs extends ThreadIdCacheArgs {
@@ -72,6 +73,7 @@ interface BeginThreadReadStateTransactionArgs extends ThreadIdCacheArgs {
 
 interface BeginThreadMetadataTransactionArgs extends ThreadIdCacheArgs {
   parentThreadId?: string | null;
+  projectId?: string;
   sectionId?: string | null;
   title?: string | null;
 }
@@ -354,10 +356,16 @@ export function beginUnpinThreadTransaction({
 }
 
 export function beginUnpinAndMoveThreadTransaction({
+  projectId,
   sectionId,
   queryClient,
   threadId,
 }: BeginUnpinAndMoveThreadTransactionArgs): Promise<ThreadListMutationTransaction> {
+  const patch = {
+    ...(projectId !== undefined ? { projectId } : {}),
+    ...(sectionId !== undefined ? { sectionId } : {}),
+    pinnedAt: null,
+  };
   return runOptimisticThreadFieldTransaction({
     applyToLists: (queryClient, threadId) =>
       applyToCachedThreadListsAndSidebarNavigation(queryClient, (list) =>
@@ -365,14 +373,13 @@ export function beginUnpinAndMoveThreadTransaction({
           thread.id === threadId
             ? {
                 ...thread,
-                sectionId,
-                pinnedAt: null,
+                ...patch,
                 pinSortKey: null,
               }
             : thread,
         ),
       ),
-    patch: { sectionId, pinnedAt: null },
+    patch,
     queryClient,
     threadId,
   });
@@ -510,6 +517,7 @@ function findThreadMetadataInCache(
 
 export function beginThreadMetadataTransaction({
   parentThreadId,
+  projectId,
   sectionId,
   queryClient,
   threadId,
@@ -531,6 +539,7 @@ export function beginThreadMetadataTransaction({
   }
   const patch = {
     ...(title !== undefined ? { title } : {}),
+    ...(projectId !== undefined ? { projectId } : {}),
     ...(sectionId !== undefined ? { sectionId } : {}),
     ...(parentThreadId !== undefined ? { parentThreadId } : {}),
   };

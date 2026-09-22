@@ -96,6 +96,13 @@ export interface SectionThreadDndState {
   pinnedReorderPending: boolean;
 }
 
+/**
+ * How the container a thread lands in is addressed: by section (the default)
+ * or by project. In project mode the sidebar groups are projects, so moving a
+ * thread between them changes its projectId rather than its sectionId.
+ */
+export type SectionThreadDndMoveTarget = "section" | "project";
+
 interface UseSectionThreadDndArgs {
   containerId: string;
   enabled: boolean;
@@ -104,6 +111,7 @@ interface UseSectionThreadDndArgs {
   onTopLevelSectionOrderChange: (order: SidebarSectionId[]) => void;
   onExpandThread?: (threadId: string) => void;
   groups?: boolean;
+  moveTarget?: SectionThreadDndMoveTarget;
   pinnedReorderPending: boolean;
   pinnedThreads: readonly ThreadListEntry[];
   pinnedRootNodes?: readonly ProjectThreadNode[];
@@ -126,6 +134,11 @@ interface SectionThreadDndLookup {
   nestParentIdByItemId: Map<string, string>;
 }
 
+/**
+ * Where the thread goes. The destination container lives either in `sectionId`
+ * (the usual mode) or in `projectId` (moveTarget: "project"); only the set
+ * field reaches the server.
+ */
 export type SectionThreadDropDecision =
   | {
       kind: "move-group";
@@ -137,13 +150,15 @@ export type SectionThreadDropDecision =
   | {
       kind: "move";
       activeId: string;
-      sectionId: string | null;
+      sectionId?: string | null;
+      projectId?: string;
       toParentKey: string;
     }
   | {
       kind: "detach";
       activeId: string;
       sectionId?: string | null;
+      projectId?: string;
       toParentKey: string;
     }
   | { kind: "pin"; activeId: string; detach: boolean }
@@ -151,6 +166,7 @@ export type SectionThreadDropDecision =
       kind: "unpin";
       activeId: string;
       sectionId: string | null;
+      projectId?: string;
       move: boolean;
       toParentKey: string;
     }
@@ -508,6 +524,7 @@ function resolveSectionThreadDropParentKey(
 
 interface ResolveSectionThreadDropDecisionOptions {
   groups?: boolean;
+  moveTarget?: SectionThreadDndMoveTarget;
 }
 
 function resolveNestDecision(
@@ -551,6 +568,60 @@ function resolveNestDecision(
     sectionId,
     unpin: fromPinned,
   };
+}
+
+interface ProjectThreadDropContext {
+  activeId: string;
+  fromParentKey: string;
+  fromPinned: boolean;
+  nested: boolean;
+  toParentKey: string;
+}
+
+/**
+ * Project mode: a sidebar group is a project, and its id in
+ * `sectionIdByParentKey` is the projectId. Dropping onto another project's
+ * group moves the thread (with its descendants, server side) there; dropping
+ * into the personal container, which has no project id, is not a move and
+ * only detaches or unpins the thread.
+ */
+function resolveProjectThreadDropDecision(
+  lookup: SectionThreadDndLookup,
+  activeThread: ThreadListEntry,
+  {
+    activeId,
+    fromParentKey,
+    fromPinned,
+    nested,
+    toParentKey,
+  }: ProjectThreadDropContext,
+): SectionThreadDropDecision {
+  const targetProjectId = lookup.sectionIdByParentKey.get(toParentKey) ?? null;
+  const projectId =
+    targetProjectId !== null && targetProjectId !== activeThread.projectId
+      ? targetProjectId
+      : null;
+  if (nested) {
+    return projectId === null
+      ? { kind: "detach", activeId, toParentKey }
+      : { kind: "detach", activeId, projectId, toParentKey };
+  }
+  if (fromPinned) {
+    return projectId === null
+      ? { kind: "unpin", activeId, sectionId: null, move: false, toParentKey }
+      : {
+          kind: "unpin",
+          activeId,
+          sectionId: null,
+          projectId,
+          move: true,
+          toParentKey,
+        };
+  }
+  if (fromParentKey === toParentKey || projectId === null) {
+    return { kind: "unchanged", activeId, toParentKey };
+  }
+  return { kind: "move", activeId, projectId, toParentKey };
 }
 
 export function resolveSectionThreadDropDecision(
@@ -631,6 +702,15 @@ export function resolveSectionThreadDropDecision(
   }
 
   if (!lookup.sectionIdByParentKey.has(toParentKey)) return null;
+  if (options.moveTarget === "project") {
+    return resolveProjectThreadDropDecision(lookup, activeThread, {
+      activeId,
+      fromParentKey,
+      fromPinned,
+      nested,
+      toParentKey,
+    });
+  }
   if (options.groups) {
     if (nested) return { kind: "detach", activeId, toParentKey };
     if (fromPinned) {
@@ -790,6 +870,15 @@ function isCoarseActivator(activatorEvent: Event | null): boolean {
 
 const SECTION_AUTO_EXPAND_MS = 200;
 
+function threadDestination(decision: {
+  sectionId?: string | null;
+  projectId?: string;
+}): { projectId: string } | { sectionId?: string | null } {
+  return decision.projectId !== undefined
+    ? { projectId: decision.projectId }
+    : { sectionId: decision.sectionId };
+}
+
 function hasDropDecisionLanded(
   lookup: SectionThreadDndLookup,
   decision: SectionThreadDropDecision,
@@ -835,6 +924,7 @@ export function useSectionThreadDnd({
   onTopLevelSectionOrderChange,
   onExpandThread,
   groups = false,
+  moveTarget = "section",
   pinnedReorderPending,
   pinnedThreads,
   pinnedRootNodes,
@@ -851,7 +941,10 @@ export function useSectionThreadDnd({
       ),
     [containerId, groups, pinnedRootNodes, pinnedThreads, rootItems],
   );
-  const decisionOptions = useMemo(() => ({ groups }), [groups]);
+  const decisionOptions = useMemo(
+    () => ({ groups, moveTarget }),
+    [groups, moveTarget],
+  );
   const topLevelSectionIds = useMemo(
     () => new Set<string>(topLevelSectionOrder),
     [topLevelSectionOrder],
@@ -1293,7 +1386,7 @@ export function useSectionThreadDnd({
           settle(
             sdk.threads.update({
               threadId: decision.activeId,
-              sectionId: decision.sectionId,
+              ...threadDestination(decision),
             }),
             "Failed to move thread.",
           );
@@ -1303,7 +1396,7 @@ export function useSectionThreadDnd({
             sdk.threads.update({
               threadId: decision.activeId,
               parentThreadId: null,
-              sectionId: decision.sectionId,
+              ...threadDestination(decision),
             }),
             "Failed to move thread.",
           );
@@ -1340,7 +1433,7 @@ export function useSectionThreadDnd({
               ? unpin.then(() =>
                   sdk.threads.update({
                     threadId: decision.activeId,
-                    sectionId: decision.sectionId,
+                    ...threadDestination(decision),
                   }),
                 )
               : unpin,

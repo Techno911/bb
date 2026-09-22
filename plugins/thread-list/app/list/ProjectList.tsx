@@ -34,7 +34,10 @@ import {
   getProjectThreadItemDescendants,
   type ProjectThreadNode,
 } from "@bb/client-core";
-import { useSectionThreadDnd } from "../dnd/useSectionThreadDnd.js";
+import {
+  useSectionThreadDnd,
+  type SectionThreadDndMoveTarget,
+} from "../dnd/useSectionThreadDnd.js";
 import { useNestDropPreview } from "../dnd/useNestDropPreview.js";
 import {
   getErrorCode,
@@ -440,6 +443,7 @@ function useGroupedModeThreadDnd({
   collapsedThreadIds,
   compareThreads,
   draftThreadIds,
+  moveTarget = "section",
   onToggleThreadCollapsed,
   order,
   onOrderChange,
@@ -450,6 +454,11 @@ function useGroupedModeThreadDnd({
   collapsedThreadIds: Set<string>;
   compareThreads: ThreadComparator;
   draftThreadIds: ReadonlySet<string>;
+  /**
+   * In project mode a sidebar group is a project, so dropping a thread onto
+   * another group changes its projectId. Other modes address a section.
+   */
+  moveTarget?: SectionThreadDndMoveTarget;
   onToggleThreadCollapsed: ToggleCollapsedId;
   order: readonly SidebarSectionId[];
   onOrderChange: (order: SidebarSectionId[]) => void;
@@ -473,6 +482,7 @@ function useGroupedModeThreadDnd({
     onTopLevelSectionOrderChange: onOrderChange,
     onExpandThread: expandThread,
     groups: true,
+    moveTarget,
     pinnedReorderPending: pinned.pinnedReorderPending,
     pinnedThreads: pinned.pinnedThreads,
     pinnedRootNodes: pinned.pinnedRootNodes,
@@ -657,6 +667,9 @@ function ProjectModeSections({
     collapsedThreadIds,
     compareThreads,
     draftThreadIds,
+    // Groups in this mode are projects, so a thread dropped onto another group
+    // moves into that project instead of changing section.
+    moveTarget: "project",
     onToggleThreadCollapsed,
     order,
     onOrderChange,

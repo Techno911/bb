@@ -2,8 +2,13 @@ import type { ThreadListEntry } from "@bb/domain";
 import { describe, expect, it } from "vitest";
 import {
   buildPinnedSidebarState,
+  buildProjectThreadGroups,
   buildSectionThreadList,
+  buildSidebarEntitySectionId,
   CHRONOLOGICAL_CONTAINER_ID,
+  getCollapsedChildActivity,
+  getProjectThreadItemDescendants,
+  type ProjectThreadItem,
 } from "@bb/client-core";
 import {
   buildPinInsertRequest,
@@ -802,5 +807,180 @@ describe("worktree group section dragging", () => {
         { groups: true },
       ),
     ).toBeNull();
+  });
+});
+
+// Project mode: sidebar groups are projects, and a thread dropped onto another
+// group changes its projectId. The group is built the way buildGroupSectionItem
+// builds it in ProjectList, so the test does not check its own fixture.
+function buildProjectGroupItem(
+  projectId: string,
+  name: string,
+  threads: readonly ThreadListEntry[],
+): ProjectThreadItem {
+  const items = buildProjectThreadGroups(threads);
+  return {
+    kind: "section",
+    group: {
+      id: projectId,
+      key: buildSidebarEntitySectionId("project", projectId),
+      name,
+      items,
+      threadCount: getProjectThreadItemDescendants(items).length,
+      activity: getCollapsedChildActivity(threads, new Set()),
+    },
+  };
+}
+
+function createProjectLookup() {
+  return collectSectionThreadDndLookup(
+    [
+      buildProjectGroupItem("proj_a", "Project A", [
+        createThread({ id: "in-a", projectId: "proj_a" }),
+        createThread({
+          id: "child-a",
+          projectId: "proj_a",
+          parentThreadId: "in-a",
+        }),
+      ]),
+      buildProjectGroupItem("proj_b", "Project B", []),
+    ],
+    CHRONOLOGICAL_CONTAINER_ID,
+    [
+      createThread({ id: "pinned-1", projectId: "proj_a", pinnedAt: 10 }),
+      createThread({ id: "pinned-2", projectId: "proj_b", pinnedAt: 9 }),
+    ],
+    [],
+    { groups: true },
+  );
+}
+
+const PROJECT_MODE = { groups: true, moveTarget: "project" } as const;
+
+describe("project thread drop decisions", () => {
+  it("moves a thread dropped on another project group", () => {
+    expect(
+      resolveSectionThreadDropDecision(
+        createProjectLookup(),
+        "in-a",
+        "project:proj_b",
+        null,
+        null,
+        PROJECT_MODE,
+      ),
+    ).toEqual({
+      kind: "move",
+      activeId: "in-a",
+      projectId: "proj_b",
+      toParentKey: "project:proj_b",
+    });
+  });
+
+  it("detaches a child thread into another project", () => {
+    expect(
+      resolveSectionThreadDropDecision(
+        createProjectLookup(),
+        "child-a",
+        "project:proj_b",
+        null,
+        null,
+        PROJECT_MODE,
+      ),
+    ).toEqual({
+      kind: "detach",
+      activeId: "child-a",
+      projectId: "proj_b",
+      toParentKey: "project:proj_b",
+    });
+  });
+
+  it("leaves a drop back on the owning project unchanged", () => {
+    expect(
+      resolveSectionThreadDropDecision(
+        createProjectLookup(),
+        "in-a",
+        "project:proj_a",
+        null,
+        null,
+        PROJECT_MODE,
+      ),
+    ).toEqual({
+      kind: "unchanged",
+      activeId: "in-a",
+      toParentKey: "project:proj_a",
+    });
+  });
+
+  it("does not treat the personal container as a project move", () => {
+    expect(
+      resolveSectionThreadDropDecision(
+        createProjectLookup(),
+        "in-a",
+        CHRONOLOGICAL_CONTAINER_ID,
+        null,
+        null,
+        PROJECT_MODE,
+      ),
+    ).toEqual({
+      kind: "unchanged",
+      activeId: "in-a",
+      toParentKey: CHRONOLOGICAL_CONTAINER_ID,
+    });
+  });
+
+  it("unpins and moves a pinned thread dropped on another project", () => {
+    expect(
+      resolveSectionThreadDropDecision(
+        createProjectLookup(),
+        "pinned-1",
+        "project:proj_b",
+        null,
+        null,
+        PROJECT_MODE,
+      ),
+    ).toEqual({
+      kind: "unpin",
+      activeId: "pinned-1",
+      sectionId: null,
+      projectId: "proj_b",
+      move: true,
+      toParentKey: "project:proj_b",
+    });
+  });
+
+  it("unpins without a redundant move when the project is unchanged", () => {
+    expect(
+      resolveSectionThreadDropDecision(
+        createProjectLookup(),
+        "pinned-1",
+        "project:proj_a",
+        null,
+        null,
+        PROJECT_MODE,
+      ),
+    ).toEqual({
+      kind: "unpin",
+      activeId: "pinned-1",
+      sectionId: null,
+      move: false,
+      toParentKey: "project:proj_a",
+    });
+  });
+
+  it("keeps other grouped modes from moving threads between groups", () => {
+    expect(
+      resolveSectionThreadDropDecision(
+        createProjectLookup(),
+        "in-a",
+        "project:proj_b",
+        null,
+        null,
+        { groups: true },
+      ),
+    ).toEqual({
+      kind: "unchanged",
+      activeId: "in-a",
+      toParentKey: "project:proj_b",
+    });
   });
 });

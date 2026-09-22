@@ -38,6 +38,7 @@ interface ThreadUpdateCommandOptions {
   self?: boolean;
   json?: boolean;
   title?: string;
+  project?: string;
   parentThread?: string;
   clearParentThread?: boolean;
   section?: string;
@@ -131,6 +132,7 @@ type PostThreadMessageResult = ThreadSendResult & {
 
 interface ThreadUpdateBody {
   title?: string;
+  projectId?: string;
   sectionId?: string | null;
   parentThreadId?: string | null;
   model?: string;
@@ -148,6 +150,7 @@ export function registerActionsCommands(
     .option("--self", "Target the current thread (from BB_THREAD_ID)")
     .option("--json", "Print machine-readable JSON output")
     .option("--title <title>", "Set the thread title")
+    .option("--project <id>", "Move the thread and its children into a project")
     .option("--parent-thread <id>", "Set the parent thread id")
     .option("--clear-parent-thread", "Clear the parent thread id")
     .option("--section <id>", "Move the thread into a section")
@@ -180,6 +183,7 @@ export function registerActionsCommands(
           if (
             !opts.parentThread &&
             !opts.clearParentThread &&
+            !opts.project &&
             !opts.section &&
             !opts.clearSection &&
             !opts.title &&
@@ -188,7 +192,7 @@ export function registerActionsCommands(
             !visibility
           ) {
             throw new Error(
-              "No changes requested. Provide --title, --parent-thread, --clear-parent-thread, --section, --clear-section, --model, --reasoning-level, or --visibility.",
+              "No changes requested. Provide --title, --project, --parent-thread, --clear-parent-thread, --section, --clear-section, --model, --reasoning-level, or --visibility.",
             );
           }
 
@@ -200,6 +204,12 @@ export function registerActionsCommands(
           const body: ThreadUpdateBody = {};
           if (opts.title) {
             body.title = opts.title;
+          }
+          if (opts.project) {
+            body.projectId = resolveExplicitIdFlag({
+              flagName: "--project",
+              value: opts.project,
+            });
           }
           if (parentThreadId) {
             body.parentThreadId = parentThreadId;
@@ -237,6 +247,9 @@ export function registerActionsCommands(
                 ? `Parent: ${thread.parentThreadId}`
                 : "No parent thread",
             );
+          }
+          if (opts.project) {
+            console.log(`Project: ${thread.projectId}`);
           }
           if (opts.section || opts.clearSection) {
             console.log(

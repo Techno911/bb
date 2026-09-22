@@ -11,8 +11,12 @@ import type {
 import type { ThreadListEntry } from "@bb/domain";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  buildProjectThreadGroups,
   buildSectionThreadList,
+  buildSidebarEntitySectionId,
   CHRONOLOGICAL_CONTAINER_ID,
+  getCollapsedChildActivity,
+  getProjectThreadItemDescendants,
   type ProjectThreadItem,
 } from "@bb/client-core";
 import {
@@ -24,8 +28,11 @@ import { getSidebarThreadRowDroppableId } from "../rows/sidebarThreadRowDroppabl
 import type { SectionThreadDndState } from "./useSectionThreadDnd.js";
 
 installTestPluginRuntime();
-const { collectSectionThreadDndLookup, NEST_HOVER_DELAY_MS, useSectionThreadDnd } =
-  await import("./useSectionThreadDnd.js");
+const {
+  collectSectionThreadDndLookup,
+  NEST_HOVER_DELAY_MS,
+  useSectionThreadDnd,
+} = await import("./useSectionThreadDnd.js");
 
 let updateThreadDeferred: {
   resolve: (value: never) => void;
@@ -473,5 +480,64 @@ describe("useSectionThreadDnd nest hover delay", () => {
     );
     act(() => props().onDragStart?.(dragStart("dragged")));
     expect(collide(114)).toEqual([]);
+  });
+});
+
+function projectGroup(
+  projectId: string,
+  threads: readonly ThreadListEntry[],
+): ProjectThreadItem {
+  const items = buildProjectThreadGroups(threads);
+  return {
+    kind: "section",
+    group: {
+      id: projectId,
+      key: buildSidebarEntitySectionId("project", projectId),
+      name: projectId,
+      items,
+      threadCount: getProjectThreadItemDescendants(items).length,
+      activity: getCollapsedChildActivity(threads, new Set()),
+    },
+  };
+}
+
+describe("useSectionThreadDnd project mode", () => {
+  it("sends a thread dropped on another project to the server as a project move", () => {
+    updateThreadFake.mockClear();
+    const result: { current: SectionThreadDndState | null } = { current: null };
+    function Harness() {
+      result.current = useSectionThreadDnd({
+        containerId: CHRONOLOGICAL_CONTAINER_ID,
+        enabled: true,
+        rootItems: [
+          projectGroup("proj_a", [
+            createThread({ id: "dragged", projectId: "proj_a" }),
+          ]),
+          projectGroup("proj_b", []),
+        ],
+        topLevelSectionOrder: ["pinned", "project:proj_a", "project:proj_b"],
+        onTopLevelSectionOrderChange: vi.fn(),
+        groups: true,
+        moveTarget: "project",
+        pinnedReorderPending: false,
+        pinnedThreads: [],
+        onReorderPinnedThread: vi.fn(),
+      });
+      return null;
+    }
+    renderSlot(
+      { component: Harness },
+      {},
+      { sdk: { threads: { update: updateThreadFake } } },
+    );
+    const props = () => result.current!.dndContextProps;
+
+    act(() => props().onDragStart?.(dragStart("dragged")));
+    act(() => props().onDragEnd?.(dragEnd("dragged", "project:proj_b")));
+
+    expect(updateThreadFake).toHaveBeenCalledWith({
+      threadId: "dragged",
+      projectId: "proj_b",
+    });
   });
 });

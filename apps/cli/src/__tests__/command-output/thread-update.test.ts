@@ -164,6 +164,29 @@ describe("bb thread update command output", () => {
     });
   });
 
+  it("bb thread update moves a thread into another project", async () => {
+    const thread = fixtures.makeThread({
+      id: "thread-move",
+      projectId: "proj-2",
+      providerId: "codex",
+    });
+    const patch = vi.fn(async () => thread);
+    stubServerApi({ "v1.threads.:id.$patch": patch });
+
+    await runCommand(
+      ["thread", "update", "thread-move", "--project", "proj-2"],
+      register,
+    );
+
+    expect(patch).toHaveBeenCalledWith({
+      param: { id: "thread-move" },
+      json: { projectId: "proj-2" },
+    });
+    expect(collectLogLines(vi.mocked(console.log))).toContain(
+      "Project: proj-2",
+    );
+  });
+
   it("bb thread update sets a sticky model and reasoning level override", async () => {
     const thread: domain.Thread = fixtures.makeThread({
       id: "thread-update-3",

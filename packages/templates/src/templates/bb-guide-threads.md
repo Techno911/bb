@@ -305,6 +305,7 @@ Ownership:
   bb thread update [id]                    Update thread metadata
     --self                                 Target current thread
     --title <title>                        Set title
+    --project <id>                         Move the thread and its children into a project
     --parent-thread <id>                   Assign to a parent thread
     --clear-parent-thread                  Remove parent assignment
     --section <id>                         Move into a section
@@ -320,6 +321,10 @@ Ownership:
   Model and reasoning updates stay within the thread's current provider. BB
   validates them against that provider's current model catalog, applies them on
   the next turn, and keeps using them on later turns until changed.
+
+  --project moves the thread and every descendant into another project. The
+  thread keeps its environment, section, and history; only the project it is
+  listed under changes.
 
   bb thread read [id]                      Mark read
   bb thread unread [id]                    Mark unread
