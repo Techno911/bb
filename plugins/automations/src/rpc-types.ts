@@ -175,6 +175,8 @@ const automationAgentExecutionSchema = z
     permissionMode: permissionModeSchema,
     environment: agentEnvironmentSchema,
     targetThreadId: z.string().min(1).optional(),
+    /** Open a new thread on every run instead of continuing the previous one. */
+    freshThreadPerRun: z.boolean().optional(),
   })
   .strict();
 
@@ -307,6 +309,7 @@ const agentExecutionUpdateSchema = z
     serviceTier: serviceTierSchema.nullable().optional(),
     permissionMode: permissionModeSchema.optional(),
     target: agentExecutionTargetSchema.optional(),
+    freshThreadPerRun: z.boolean().optional(),
   })
   .strict()
   .refine(
@@ -317,7 +320,8 @@ const agentExecutionUpdateSchema = z
       value.reasoningLevel !== undefined ||
       value.serviceTier !== undefined ||
       value.permissionMode !== undefined ||
-      value.target !== undefined,
+      value.target !== undefined ||
+      value.freshThreadPerRun !== undefined,
     { message: "at least one agent execution field is required" },
   );
 export type AgentExecutionUpdate = z.infer<typeof agentExecutionUpdateSchema>;

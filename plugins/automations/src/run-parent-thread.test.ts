@@ -15,7 +15,7 @@ type FakeThread = {
 
 async function createHost() {
   const threads = new Map<string, FakeThread>();
-  const spawn = vi.fn(async () => {
+  const spawn = vi.fn(async (_input: { parentThreadId?: string }) => {
     const thread: FakeThread = {
       id: `thr_run${spawn.mock.calls.length}`,
       archivedAt: null,
@@ -33,7 +33,13 @@ async function createHost() {
     sdk: {
       projects: {
         async get({ projectId }) {
-          return { id: projectId, name: "Test Project", deletedAt: null };
+          return {
+            id: projectId,
+            name: "Test Project",
+            deletedAt: null,
+            kind: "standard",
+            sources: [],
+          };
         },
         async list() {
           return [{ id: PROJECT_ID, name: "Test Project", deletedAt: null }];

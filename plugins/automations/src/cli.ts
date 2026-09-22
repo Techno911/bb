@@ -147,6 +147,12 @@ const AGENT_OPTIONS = {
     placeholder: "thread-id",
     description: "Re-prompt this existing thread instead of spawning one",
   },
+  "fresh-thread": {
+    type: "enum",
+    values: ["true", "false"],
+    description:
+      "true opens a new thread on every run instead of continuing the previous one; false on update restores the default",
+  },
   environment: {
     type: "string",
     placeholder: "id-or-path",
@@ -225,6 +231,7 @@ interface AgentOptionValues {
   "service-tier": ServiceTier | "none" | undefined;
   "permission-mode": PermissionMode | undefined;
   "target-thread": string | undefined;
+  "fresh-thread": "true" | "false" | undefined;
   environment: string | undefined;
   "new-environment": "worktree" | undefined;
   "base-branch": string | undefined;
@@ -657,6 +664,9 @@ async function buildExecution(
         ...(options["target-thread"]
           ? { targetThreadId: options["target-thread"] }
           : {}),
+        ...(options["fresh-thread"] === "true"
+          ? { freshThreadPerRun: true }
+          : {}),
       },
     };
   }
@@ -667,6 +677,7 @@ async function buildExecution(
     options["service-tier"] !== undefined ||
     options["permission-mode"] !== undefined ||
     options["target-thread"] !== undefined ||
+    options["fresh-thread"] !== undefined ||
     options.environment !== undefined ||
     options["new-environment"] !== undefined ||
     options["base-branch"] !== undefined
@@ -729,6 +740,7 @@ async function buildAgentExecutionUpdate(
     options["service-tier"],
     options["permission-mode"],
     options["target-thread"],
+    options["fresh-thread"],
     options.environment,
     options["new-environment"],
     options["base-branch"],
@@ -755,6 +767,9 @@ async function buildAgentExecutionUpdate(
   }
   if (options["permission-mode"] !== undefined) {
     update.permissionMode = options["permission-mode"];
+  }
+  if (options["fresh-thread"] !== undefined) {
+    update.freshThreadPerRun = options["fresh-thread"] === "true";
   }
   if (options["target-thread"] !== undefined) {
     update.target = {
