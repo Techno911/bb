@@ -921,6 +921,11 @@ export interface PluginSidebarThread {
   /** The agent provider this thread runs on; resolve it through
    * {@link PluginSdkApp.experimental_useProviders} for a name and icon. */
   providerId: string;
+  /**
+   * The model pinned to this thread, when one is. Null (or absent) means the
+   * thread runs on its provider's default model.
+   */
+  model?: string | null;
 
   /**
    * The thread's execution status. bb's list sorts busy threads ("starting",

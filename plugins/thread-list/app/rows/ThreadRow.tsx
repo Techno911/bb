@@ -22,6 +22,7 @@ import { LIST_HOVER_TRANSITION } from "@bb/shared-ui/motion";
 import {
   hasThreadListWorkingActivity,
   threadListIndicatorStateForThread,
+  threadModelRowLabel,
   NO_COLLAPSED_CHILD_ACTIVITY,
   type CollapsedChildActivity,
   type ThreadListIndicatorState,
@@ -552,6 +553,20 @@ function ThreadRowComponent({
               <ThreadTitle threadId={thread.id} />
             </span>
           )}
+          {thread.parentThreadId !== null && !isEditing ? (
+            // A child thread usually exists to run the same work on another
+            // model (a review, a second opinion), so the row says which one.
+            <span
+              data-sidebar-thread-model=""
+              title={`${thread.providerId}${thread.model ? ` · ${thread.model}` : ""}`}
+              className="relative top-px ml-1.5 shrink-0 rounded-sm border border-border/60 px-1 font-mono text-[10px] uppercase leading-4 tracking-wide text-muted-foreground"
+            >
+              {threadModelRowLabel({
+                model: thread.model,
+                providerId: thread.providerId,
+              })}
+            </span>
+          ) : null}
         </span>
         {parentOptions && hasChildren ? (
           <SidebarChildToggleChevron

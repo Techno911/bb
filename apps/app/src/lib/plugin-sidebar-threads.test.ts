@@ -21,8 +21,9 @@ describe("toPluginSidebarThread", () => {
   it("resolves the display title through the same rules bb's row uses", () => {
     expect(toPluginSidebarThread(makeThread()).displayTitle).toBe("A thread");
     expect(
-      toPluginSidebarThread(makeThread({ title: null, titleFallback: "Fallback" }))
-        .displayTitle,
+      toPluginSidebarThread(
+        makeThread({ title: null, titleFallback: "Fallback" }),
+      ).displayTitle,
     ).toBe("Fallback");
     expect(
       toPluginSidebarThread(
@@ -223,6 +224,13 @@ describe("toPluginSidebarThread", () => {
 
   it("carries the provider so a row can draw an agent glyph", () => {
     expect(toPluginSidebarThread(makeThread()).providerId).toBe("codex");
+  });
+
+  it("carries the pinned model so a child row can name it", () => {
+    expect(
+      toPluginSidebarThread(makeThread({ model: "claude-fable-5-1" })).model,
+    ).toBe("claude-fable-5-1");
+    expect(toPluginSidebarThread(makeThread()).model).toBeNull();
   });
 
   it("resolves the machine name for the thread's host", () => {

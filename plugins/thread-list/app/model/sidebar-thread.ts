@@ -54,6 +54,7 @@ export function toSidebarThread(thread: PluginSidebarThread): SidebarThread {
     projectId: thread.projectId,
     environmentId: environment?.id ?? null,
     providerId: thread.providerId,
+    model: thread.model ?? null,
     title: thread.title,
     titleFallback: thread.titleFallback,
     sectionId: thread.sectionId,
