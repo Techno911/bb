@@ -32,6 +32,7 @@ const CONTINUATION_MODULES = [
 // noise there, so they stay out on purpose.
 const EXCLUDED_FIELDS = [
   "apps/app/src/components/plugin/PluginSettings.tsx",
+  "apps/app/src/components/settings/MachineEnvironmentImportDialog.tsx",
   "packages/shared-ui/src/components/ui/textarea.tsx",
 ];
 

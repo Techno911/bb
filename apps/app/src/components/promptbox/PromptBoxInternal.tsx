@@ -22,6 +22,7 @@ import {
   type FormEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type ComponentType,
   type ReactNode,
   type Ref,
 } from "react";
@@ -458,6 +459,11 @@ export interface PromptBoxHandle {
   playVoiceCompletionTransition: () => Promise<void>;
 }
 
+export interface CollapsedModelSummary {
+  label: string;
+  Icon?: ComponentType<{ className?: string }>;
+}
+
 export type { PromptBoxAction } from "./PromptBoxActionsMenu";
 
 export type MentionMenuPlacement = "top" | "bottom";
@@ -489,6 +495,7 @@ interface PromptBoxInternalProps {
   onCollapse?: () => void;
   compact?: PromptBoxCompactConfig;
   containerCompactPlaceholder?: string;
+  collapsedModelSummary?: CollapsedModelSummary;
   heightAnimationKey?: string | number;
   history?: HistoryConfig;
   voice?: PromptVoiceConfig;
@@ -1229,6 +1236,7 @@ export function PromptBoxInternal({
   onCollapse,
   compact,
   containerCompactPlaceholder,
+  collapsedModelSummary,
   heightAnimationKey,
   history,
   voice,
@@ -1482,9 +1490,15 @@ export function PromptBoxInternal({
   }, []);
   const showCompactLayout =
     compact?.isCompact === true && !showVoiceActionGroup;
-  const effectivePlaceholder = showCompactLayout
-    ? (compact.placeholder ?? placeholder)
-    : placeholder;
+  const showCollapsedModelSummary =
+    showCompactLayout &&
+    collapsedModelSummary !== undefined &&
+    value.trim().length === 0;
+  const effectivePlaceholder = showCollapsedModelSummary
+    ? ""
+    : showCompactLayout
+      ? (compact.placeholder ?? placeholder)
+      : placeholder;
   const pluginComposerHost = usePluginComposerHost();
   const composerInputLocked = useComposerInputLock(
     pluginComposerHost?.textEffectKey ?? null,
@@ -3262,6 +3276,14 @@ export function PromptBoxInternal({
                   </div>
                 ) : null}
               </>
+            ) : null}
+            {showCollapsedModelSummary ? (
+              <div data-promptbox-collapsed-summary="" aria-hidden="true">
+                {collapsedModelSummary.Icon ? (
+                  <collapsedModelSummary.Icon className="size-3.5 shrink-0" />
+                ) : null}
+                <span>{collapsedModelSummary.label}</span>
+              </div>
             ) : null}
             <ComposerEditorSlot
               editor={editor}

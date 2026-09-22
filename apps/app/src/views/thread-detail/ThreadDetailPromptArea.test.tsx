@@ -133,6 +133,7 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
       };
       composer: {
         canModifierSubmit: boolean;
+        collapsedModelSummary?: { label: string };
         message: string;
         onChangeMessage: (message: string, mentions: []) => void;
         onEscape?: () => void;
@@ -209,6 +210,9 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
         </div>
         <div data-testid="submit-label">{composer?.submitLabel ?? ""}</div>
         <div data-testid="submit-icon">{composer?.submitIcon ?? ""}</div>
+        <div data-testid="collapsed-model-summary">
+          {composer?.collapsedModelSummary?.label ?? ""}
+        </div>
         <div data-testid="plugin-customizations-suppressed">
           {suppressPluginComposerCustomizations ? "true" : "false"}
         </div>
@@ -605,13 +609,19 @@ vi.mock("@/hooks/useThreadCreationOptions", async () => {
         modelCatalogIsSettled: true,
         modelLoadError: null,
         modelLoadFailed: false,
-        modelOptions: [],
+        modelOptions: isClaude
+          ? [{ value: "claude-opus-5", label: "Claude Opus 5" }]
+          : [{ value: "gpt-5", label: "GPT-5" }],
         moreModelOptions: [],
         permissionMode: options.initialPermissionMode ?? "auto",
         permissionModeOptions: [],
         providerOptions: [
           { value: "codex", label: "Codex" },
-          { value: "claude-code", label: "Claude Code" },
+          {
+            value: "claude-code",
+            label: "Claude Code",
+            brandPrefix: "Claude ",
+          },
         ],
         reasoningLevel: "medium",
         reasoningOptions: [],
@@ -943,6 +953,38 @@ afterEach(() => {
     .forEach((element) => element.remove());
   resetPluginSlotStoreForTest();
   vi.clearAllMocks();
+});
+
+describe("collapsed composer model summary", () => {
+  it("uses the selected model label on a thread that can take a message", () => {
+    renderPromptArea();
+
+    expect(screen.getByTestId("collapsed-model-summary").textContent).toBe(
+      "GPT-5",
+    );
+  });
+
+  it("uses the selected provider brand prefix rules", () => {
+    renderPromptArea({ thread: makeThread({ providerId: "claude-code" }) });
+
+    expect(screen.getByTestId("collapsed-model-summary").textContent).toBe(
+      "Opus 5",
+    );
+  });
+
+  it("keeps the status placeholder while the thread cannot take a message", () => {
+    renderPromptArea({
+      thread: makeThread({
+        runtime: {
+          displayStatus: "provisioning",
+          hostReconnectGraceExpiresAt: null,
+        },
+        status: "starting",
+      }),
+    });
+
+    expect(screen.getByTestId("collapsed-model-summary").textContent).toBe("");
+  });
 });
 
 describe("environment follow-up summary", () => {
@@ -1986,6 +2028,9 @@ describe("ThreadDetailPromptArea", () => {
       expect.objectContaining({ initialModel: "claude-opus-4-8" }),
     );
     expect(screen.getByTestId("selected-model").textContent).toBe(
+      "claude-opus-4-8",
+    );
+    expect(screen.getByTestId("collapsed-model-summary").textContent).toBe(
       "claude-opus-4-8",
     );
     expect(screen.getByText("Model fallback")).toBeTruthy();

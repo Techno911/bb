@@ -72,6 +72,7 @@ import { ThreadBackgroundCommandsCard } from "@/components/promptbox/banner/Thre
 import { ThreadModelFallbackCard } from "@/components/promptbox/banner/ThreadModelFallbackCard";
 import { InlineMessageEditorFrame } from "@/components/promptbox/InlineMessageEditorFrame";
 import type { ModelReasoningPickerHandoffSelection } from "@/components/pickers/ModelReasoningPicker";
+import { stripModelBrandPrefix } from "@/components/pickers/model-brand-prefix";
 import type {
   WorkspaceChangedFileSelection,
   WorkspaceChangedFilesSection,
@@ -950,6 +951,38 @@ export function ThreadDetailPromptArea({
   const compactPromptPlaceholder = getCompactFollowUpPromptPlaceholder(
     isStopRequested ? "stopping" : runtimeDisplayStatus,
   );
+  const collapsedModelSummary = useMemo(() => {
+    if (
+      isStopRequested ||
+      (runtimeDisplayStatus !== "pending" &&
+        runtimeDisplayStatus !== "idle" &&
+        runtimeDisplayStatus !== "active")
+    ) {
+      return undefined;
+    }
+    const model = effectiveSelectedModel.trim();
+    if (model.length === 0) return undefined;
+    const provider = providerOptions.find(
+      (option) => option.value === selectedProviderId,
+    );
+    const modelLabel =
+      modelOptions.find((option) => option.value === model)?.label ?? model;
+    const label = stripModelBrandPrefix(
+      modelLabel,
+      provider?.brandPrefix,
+    ).trim();
+    if (label.length === 0) return undefined;
+    return provider?.icon === undefined
+      ? { label }
+      : { label, Icon: provider.icon };
+  }, [
+    effectiveSelectedModel,
+    isStopRequested,
+    modelOptions,
+    providerOptions,
+    runtimeDisplayStatus,
+    selectedProviderId,
+  ]);
   const submitProgrammaticallyRef = useRef<
     (
       options: ExperimentalComposerSubmitOptions,
@@ -1462,6 +1495,7 @@ export function ThreadDetailPromptArea({
           }
         : {}),
       compactPromptPlaceholder,
+      collapsedModelSummary,
       promptPlaceholder,
       canModifierSubmit: canSubmitModifierShortcut,
       steerActiveThreadOnEnter,
@@ -1470,6 +1504,7 @@ export function ThreadDetailPromptArea({
     }),
     [
       canSubmitModifierShortcut,
+      collapsedModelSummary,
       compactPromptPlaceholder,
       currentPromptDraft,
       handleBottomComposerModifierSubmit,

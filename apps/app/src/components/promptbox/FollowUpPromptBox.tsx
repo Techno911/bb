@@ -43,6 +43,7 @@ import {
   type HistoryConfig,
   type PromptBoxAction,
   type PromptBoxHandle,
+  type CollapsedModelSummary,
   type TypeaheadConfig,
 } from "@/components/promptbox/PromptBoxInternal";
 import { usePromptModePermissionDisplay } from "@/components/promptbox/usePromptModePermissionDisplay";
@@ -137,6 +138,7 @@ export interface FollowUpComposerProps {
   submitIcon?: IconName;
   submitTitle?: string;
   compactPromptPlaceholder: string;
+  collapsedModelSummary?: CollapsedModelSummary;
   promptPlaceholder: string;
   canModifierSubmit: boolean;
   steerActiveThreadOnEnter: boolean;
@@ -709,6 +711,7 @@ function FollowUpPromptBoxWithComposer({
         focusEndKey={focusEndKey}
         placeholder={composer.promptPlaceholder}
         containerCompactPlaceholder={composer.compactPromptPlaceholder}
+        collapsedModelSummary={composer.collapsedModelSummary}
         heightAnimationKey={isInteractionExpanded ? "expanded" : "compact"}
         mentionMenuPlacement="top"
         submission={{

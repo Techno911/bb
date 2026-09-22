@@ -50,6 +50,7 @@ import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon";
 import ToolboxIcon from "@hugeicons/core-free-icons/ToolboxIcon";
 import ToolCaseIcon from "@hugeicons/core-free-icons/ToolCaseIcon";
 import UserAdd01Icon from "@hugeicons/core-free-icons/UserAdd01Icon";
+import UsersRoundIcon from "@hugeicons/core-free-icons/UsersRoundIcon";
 import UnavailableIcon from "@hugeicons/core-free-icons/UnavailableIcon";
 import WorkflowCircle03Icon from "@hugeicons/core-free-icons/WorkflowCircle03Icon";
 import ZapIcon from "@hugeicons/core-free-icons/ZapIcon";
@@ -204,6 +205,7 @@ const CORE_ICON_MAP = {
   Trash2: Delete02Icon,
   Unavailable: UnavailableIcon,
   UserRoundPlus: UserAdd01Icon,
+  UsersRound: UsersRoundIcon,
   Workflow: WorkflowCircle03Icon,
   X: Cancel01Icon,
   Zap: ZapIcon,

@@ -2363,6 +2363,74 @@ describe("PromptBoxInternal plugin composer actions", () => {
 });
 
 describe("PromptBoxInternal compact layout", () => {
+  function ProviderMark({ className }: { className?: string }) {
+    return <span className={className} data-testid="provider-mark" />;
+  }
+
+  it("shows the model instead of the placeholder on a collapsed empty composer", () => {
+    render(
+      <PromptBoxInternal
+        {...createPromptBoxProps({
+          compact: { isCompact: true, placeholder: "Ask a follow-up" },
+        })}
+        collapsedModelSummary={{ label: "Opus 5 1M", Icon: ProviderMark }}
+      />,
+    );
+
+    expect(screen.getByText("Opus 5 1M")).toBeTruthy();
+    expect(screen.getByTestId("provider-mark")).toBeTruthy();
+    expect(getPromptEditorElement().getAttribute("data-placeholder")).toBe("");
+  });
+
+  it("keeps the compact placeholder without a model summary", () => {
+    render(
+      <PromptBoxInternal
+        {...createPromptBoxProps({
+          compact: { isCompact: true, placeholder: "Ask a follow-up" },
+        })}
+      />,
+    );
+
+    expect(getPromptEditorElement().getAttribute("data-placeholder")).toBe(
+      "Ask a follow-up",
+    );
+    expect(
+      document.querySelector("[data-promptbox-collapsed-summary]"),
+    ).toBeNull();
+  });
+
+  it("gives the collapsed line back to a started draft", () => {
+    render(
+      <PromptBoxInternal
+        {...createPromptBoxProps({
+          value: "half-written question",
+          compact: { isCompact: true, placeholder: "Ask a follow-up" },
+        })}
+        collapsedModelSummary={{ label: "Opus 5 1M" }}
+      />,
+    );
+
+    expect(
+      document.querySelector("[data-promptbox-collapsed-summary]"),
+    ).toBeNull();
+    expect(getPromptEditorElement().getAttribute("data-placeholder")).toBe(
+      "Ask a follow-up",
+    );
+  });
+
+  it("does not show the collapsed summary in the expanded composer", () => {
+    render(
+      <PromptBoxInternal
+        {...createPromptBoxProps()}
+        collapsedModelSummary={{ label: "Opus 5 1M" }}
+      />,
+    );
+
+    expect(
+      document.querySelector("[data-promptbox-collapsed-summary]"),
+    ).toBeNull();
+  });
+
   it("shows only an attachment count when compact and removal controls when expanded", () => {
     const items: NonNullable<
       NonNullable<PromptBoxProps["attachments"]>["items"]
