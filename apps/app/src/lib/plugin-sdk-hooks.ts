@@ -2,6 +2,7 @@ import {
   removePluginMention,
   subscribeComposerSubmitted,
 } from "./composer-submissions";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import {
   useCallback,
   useContext,
@@ -71,7 +72,6 @@ import {
   AUTOMATIONS_PLUGIN_ID,
   getPluginPanelRoutePath,
   getProjectComposeRoutePath,
-  getRootComposeRoutePath,
   getThreadRoutePath,
   AUTOMATION_EDIT_ROUTE_PATH,
 } from "@/lib/route-paths";
@@ -369,13 +369,14 @@ export function useBbNavigate(): BbNavigate {
     },
     [navigate, pluginId],
   );
+  const openNewThreadPane = useOpenNewThreadPane();
   const toCompose = useCallback(
     (options?: { initialPrompt?: string; focusPrompt?: boolean }) => {
       const replacesAutomationEditRoute =
         pluginId === AUTOMATIONS_PLUGIN_ID &&
         isAutomationEditRoutePath(location.pathname);
-      void navigate(getRootComposeRoutePath(), {
-        ...(replacesAutomationEditRoute ? { replace: true } : {}),
+      openNewThreadPane({
+        ...(replacesAutomationEditRoute ? { replaceHistoryEntry: true } : {}),
         state: {
           focusPrompt: options?.focusPrompt ?? false,
           initialPrompt: options?.initialPrompt ?? "",
@@ -385,7 +386,7 @@ export function useBbNavigate(): BbNavigate {
         },
       });
     },
-    [location.pathname, navigate, pluginId],
+    [location.pathname, openNewThreadPane, pluginId],
   );
   const openThreadPanel = useCallback<BbNavigate["openThreadPanel"]>(
     (options) => openThreadPanelHandler?.({ ...options, pluginId }) ?? false,

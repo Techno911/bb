@@ -11,9 +11,10 @@ import { useCreateThreadInEnvironment } from "./useCreateThreadInEnvironment";
 
 const navigate = vi.fn();
 
-vi.mock("@/components/ui/app-route-anchor", () => ({
-  useRouteNavigate: () => navigate,
-}));
+vi.mock("react-router-dom", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-router-dom")>();
+  return { ...actual, useNavigate: () => navigate };
+});
 
 vi.mock("@/lib/root-compose-selection", () => ({
   useSetRootComposeProjectId: () => vi.fn(),

@@ -25,6 +25,7 @@ import { SidebarThreadShortcutKeysContext } from "@/components/sidebar/sidebarTh
 
 const actions = vi.hoisted(() => ({
   navigate: vi.fn(),
+  routerNavigate: vi.fn(),
   setRootComposeProjectId: vi.fn(),
 }));
 
@@ -90,6 +91,11 @@ vi.mock("@/hooks/mutations/thread-state-mutations", () => ({
 vi.mock("@/components/ui/app-route-anchor", () => ({
   useRouteNavigate: () => actions.navigate,
 }));
+
+vi.mock("react-router-dom", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-router-dom")>();
+  return { ...actual, useNavigate: () => actions.routerNavigate };
+});
 
 vi.mock("@bb/shared-ui/hooks/use-compact-viewport", () => ({
   useIsCompactViewport: () => false,
@@ -309,7 +315,7 @@ describe("useSidebarThreads sections", () => {
 });
 
 describe("useSidebarThreadActions", () => {
-  it("opens a project composer without a legacy route transition", () => {
+  it("opens a project composer beside the focused pane", () => {
     state.data = payload([]);
     const { result } = renderHook(() => useSidebarThreadActions());
 
@@ -321,9 +327,10 @@ describe("useSidebarThreadActions", () => {
     });
 
     expect(actions.setRootComposeProjectId).toHaveBeenCalledWith("proj_target");
-    expect(actions.navigate).toHaveBeenCalledWith("/", {
+    expect(actions.routerNavigate).toHaveBeenCalledWith("/", {
       state: { focusPrompt: true },
     });
+    expect(actions.navigate).not.toHaveBeenCalled();
   });
 
   it("files a new thread under a section the way bb's section menu does", () => {
@@ -338,7 +345,7 @@ describe("useSidebarThreadActions", () => {
       });
     });
 
-    expect(actions.navigate).toHaveBeenCalledWith("/", {
+    expect(actions.routerNavigate).toHaveBeenCalledWith("/", {
       state: { focusPrompt: true, sectionId: "sec_later" },
     });
   });
@@ -354,18 +361,20 @@ describe("useSidebarThreadActions", () => {
       });
     });
 
-    expect(actions.navigate).toHaveBeenCalledWith("/", {
-      state: { reuseEnvironmentId: "env_1" },
+    expect(actions.routerNavigate).toHaveBeenCalledWith("/", {
+      state: { focusPrompt: false, reuseEnvironmentId: "env_1" },
     });
   });
 
-  it("navigates with no router state when no option is set", () => {
+  it("opens the composer without focusing the prompt when no option is set", () => {
     state.data = payload([]);
     const { result } = renderHook(() => useSidebarThreadActions());
     act(() => {
       result.current.openNewThread();
     });
-    expect(actions.navigate).toHaveBeenCalledWith("/", undefined);
+    expect(actions.routerNavigate).toHaveBeenCalledWith("/", {
+      state: { focusPrompt: false },
+    });
   });
 
   it("re-expands a collapsed conversation when opening its thread", () => {

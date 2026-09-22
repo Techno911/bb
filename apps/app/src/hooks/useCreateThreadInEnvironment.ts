@@ -1,7 +1,5 @@
 import { useCallback } from "react";
-import { useRouteNavigate } from "@/components/ui/app-route-anchor";
-import { getRootComposeRoutePath } from "@/lib/route-paths";
-import { useSetRootComposeProjectId } from "@/lib/root-compose-selection";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 
 interface UseCreateThreadInEnvironmentArgs {
   projectId: string;
@@ -14,16 +12,11 @@ export function useCreateThreadInEnvironment({
   environmentId,
   sectionId,
 }: UseCreateThreadInEnvironmentArgs): () => void {
-  const navigate = useRouteNavigate();
-  const setRootComposeProjectId = useSetRootComposeProjectId();
+  const openNewThreadPane = useOpenNewThreadPane();
   return useCallback(() => {
-    setRootComposeProjectId(projectId);
-    navigate(getRootComposeRoutePath(), {
-      state: {
-        focusPrompt: true,
-        reuseEnvironmentId: environmentId,
-        sectionId,
-      },
+    openNewThreadPane({
+      projectId,
+      state: { reuseEnvironmentId: environmentId, sectionId },
     });
-  }, [environmentId, navigate, projectId, sectionId, setRootComposeProjectId]);
+  }, [environmentId, openNewThreadPane, projectId, sectionId]);
 }

@@ -43,11 +43,10 @@ import { useSidebarNavigation } from "@/hooks/queries/sidebar-navigation-query";
 import { useUpdateThread } from "@/hooks/mutations/thread-state-mutations";
 import { useRouteNavigate } from "@/components/ui/app-route-anchor";
 import { toPluginSidebarThread } from "./plugin-sidebar-threads";
-import { useSetRootComposeProjectId } from "./root-compose-selection";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import { openThreadInSplit } from "./split-layout/openThreadInSplit";
 import {
   getProjectComposeRoutePath,
-  getRootComposeRoutePath,
   getSettingsProjectRoutePath,
   getThreadRoutePath,
 } from "./route-paths";
@@ -262,7 +261,7 @@ export function useSidebarThreadActions(): PluginSidebarThreadActions {
   const navigate = useRouteNavigate();
   const store = useStore();
   const isCompact = useIsCompactViewport();
-  const setRootComposeProjectId = useSetRootComposeProjectId();
+  const openNewThreadPane = useOpenNewThreadPane();
   const hostActions = useThreadActions();
   const entriesById = useThreadEntryMap();
   const { mutateAsync: updateThreadAsync } = useUpdateThread();
@@ -300,11 +299,8 @@ export function useSidebarThreadActions(): PluginSidebarThreadActions {
       },
       openNewThread(options) {
         const projectId = options?.projectId;
-        if (projectId !== undefined) {
-          setRootComposeProjectId(projectId);
-        }
         const state = {
-          ...(options?.focusPrompt ? { focusPrompt: true } : {}),
+          focusPrompt: options?.focusPrompt ?? false,
           ...(options?.sectionId !== undefined
             ? { sectionId: options.sectionId }
             : {}),
@@ -312,10 +308,10 @@ export function useSidebarThreadActions(): PluginSidebarThreadActions {
             ? { reuseEnvironmentId: options.environmentId }
             : {}),
         };
-        navigate(
-          getRootComposeRoutePath(),
-          Object.keys(state).length > 0 ? { state } : undefined,
-        );
+        openNewThreadPane({
+          ...(projectId === undefined ? {} : { projectId }),
+          state,
+        });
       },
       async setPinned(threadId, pinned) {
         const entry = requireEntry(threadId);
@@ -344,7 +340,7 @@ export function useSidebarThreadActions(): PluginSidebarThreadActions {
       isCompact,
       navigate,
       requireEntry,
-      setRootComposeProjectId,
+      openNewThreadPane,
       store,
       updateThreadAsync,
     ],

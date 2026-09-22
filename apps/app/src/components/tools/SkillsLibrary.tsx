@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import {
   matchPath,
   useLocation,
@@ -50,7 +51,6 @@ import type { RegistryRanking, RegistrySkill } from "@/lib/skills-registry";
 import {
   getRegistrySkillDetailRoutePath,
   getRegistrySkillsRoutePath,
-  getRootComposeRoutePath,
   getSkillDetailRoutePath,
   getSkillsRoutePath,
 } from "@/lib/route-paths";
@@ -162,6 +162,7 @@ export function SkillsLibrary() {
   const providerRoster = useProviderRoster();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const openNewThreadPane = useOpenNewThreadPane();
   const location = useLocation();
   const { skillId: routeSkillId, registrySkillId: routeRegistrySkillId } =
     useParams<{
@@ -428,9 +429,8 @@ export function SkillsLibrary() {
   );
   const editSkillViaThread = useCallback(
     (skill: SkillSummary) => {
-      navigate(getRootComposeRoutePath(), {
+      openNewThreadPane({
         state: {
-          focusPrompt: true,
           initialPrompt: buildSkillEditThreadPrompt({
             id: skill.id,
             name: skill.name,
@@ -440,7 +440,7 @@ export function SkillsLibrary() {
         },
       });
     },
-    [navigate],
+    [openNewThreadPane],
   );
   const openRegistrySkill = useCallback(
     (skill: RegistrySkill) => {
@@ -467,29 +467,27 @@ export function SkillsLibrary() {
   }, [navigate]);
   const handleCreateSkill = useCallback(
     (prompt?: string) => {
-      navigate(getRootComposeRoutePath(), {
+      openNewThreadPane({
         state: {
-          focusPrompt: true,
           initialPrompt: prompt ?? CREATE_SKILL_PROMPT,
           replaceInitialPrompt: true,
           createDraftKind: "skill",
         },
       });
     },
-    [navigate],
+    [openNewThreadPane],
   );
   const forkRegistrySkill = useCallback(
     (skill: RegistrySkill) => {
-      navigate(getRootComposeRoutePath(), {
+      openNewThreadPane({
         state: {
-          focusPrompt: true,
           initialPrompt: buildRegistrySkillReferencePrompt(skill),
           replaceInitialPrompt: true,
           createDraftKind: "skill",
         },
       });
     },
-    [navigate],
+    [openNewThreadPane],
   );
   const registryDetail = registryDetailQuery.data ?? null;
   const selectedLocalRegistrySkill = selectedRegistrySkill

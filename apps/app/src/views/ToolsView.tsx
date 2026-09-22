@@ -1,4 +1,5 @@
 import { useIsCompactViewport } from "@bb/shared-ui/hooks/use-compact-viewport";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import { useAtom } from "jotai";
 import { pluginWorkspaceAtom } from "@/components/plugin/plugin-workspace-state";
 import { useSetPluginEnabled } from "@/components/plugin/useSetPluginEnabled";
@@ -55,7 +56,6 @@ import {
   SKILLS_ROUTE_PATH,
   getPluginDetailRoutePath,
   getPluginsRoutePath,
-  getRootComposeRoutePath,
 } from "@/lib/route-paths";
 import { getToolsOwnedCollectionRoutePath } from "@/components/tools/tools-navigation";
 import { cn } from "@bb/shared-ui/lib/utils";
@@ -149,6 +149,7 @@ function PluginsToolView({
 
 function PluginDetailToolView({ pluginId }: { pluginId: string }) {
   const navigate = useNavigate();
+  const openNewThreadPane = useOpenNewThreadPane();
   const location = useLocation();
   const [deleteTarget, setDeleteTarget] = useState<PluginListItem | null>(null);
   const [installTarget, setInstallTarget] =
@@ -234,9 +235,8 @@ function PluginDetailToolView({ pluginId }: { pluginId: string }) {
         : null;
   const handleEditPlugin = useCallback(
     (plugin: PluginListItem) => {
-      navigate(getRootComposeRoutePath(), {
+      openNewThreadPane({
         state: {
-          focusPrompt: true,
           initialPrompt: buildPluginEditThreadPrompt({
             name: plugin.name ?? plugin.id,
             path: plugin.rootDir,
@@ -245,7 +245,7 @@ function PluginDetailToolView({ pluginId }: { pluginId: string }) {
         },
       });
     },
-    [navigate],
+    [openNewThreadPane],
   );
   const handleOpenPluginSource = useCallback(
     (plugin: PluginListItem) => {
