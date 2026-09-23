@@ -28,6 +28,8 @@ import {
   experimental_defineProviderBridge,
 } from "@get-bb/plugin-sdk/provider-bridge";
 import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { join as joinPath, resolve as resolvePath } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -87,8 +89,10 @@ import {
   type PermissionEscalationWorkContext,
 } from "./session-options.js";
 import {
+  collectNativeClaudeSkillNames,
   createClaudeSkillPluginsRoot,
   ensureClaudeSkillPlugin,
+  resolveDedupedSkillRootPath,
 } from "./skill-plugins.js";
 import {
   buildBridgeMcpServer,
@@ -352,22 +356,35 @@ function nextInteractiveRequestId(): string {
   interactiveRequestIdCounter += 1;
   return `interaction-${interactiveRequestIdCounter}`;
 }
-let configuredSkillRoots: ClaudeCodeSkillRoot[] | null = null;
+let configuredSkillRootSources: readonly { id: string; path: string }[] | null =
+  null;
+let skillPluginsBySessionCwd = new Map<string, ClaudeCodeSkillRoot[]>();
 let skillPluginsRoot: string | null = null;
+let skillDedupStageRoot: string | null = null;
 let bridgeTempDir: string | null = null;
 
 function assembleSkillPlugins(
   roots: readonly { id: string; path: string }[],
+  cwd: string,
 ): ClaudeCodeSkillRoot[] {
   const takenNames = new Map<string, string>();
   const assembled: ClaudeCodeSkillRoot[] = [];
+  const nativeSkillNames = collectNativeClaudeSkillNames({
+    homeDir: homedir(),
+    cwd,
+  });
   for (const root of roots) {
     try {
+      const path = resolveDedupedSkillRootPath({
+        stageRoot: requireSkillDedupStageRoot(),
+        rootPath: root.path,
+        nativeSkillNames,
+      });
       assembled.push({
         id: root.id,
         localPluginPath: ensureClaudeSkillPlugin({
           pluginsRoot: requireSkillPluginsRoot(),
-          root: { id: root.id, path: root.path },
+          root: { id: root.id, path },
           takenNames,
         }),
       });
@@ -378,6 +395,29 @@ function assembleSkillPlugins(
     }
   }
   return assembled;
+}
+
+function skillPluginsForSession(
+  cwd: string,
+): ClaudeCodeSkillRoot[] | undefined {
+  if (configuredSkillRootSources === null) {
+    return undefined;
+  }
+  const cached = skillPluginsBySessionCwd.get(cwd);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const assembled = assembleSkillPlugins(configuredSkillRootSources, cwd);
+  skillPluginsBySessionCwd.set(cwd, assembled);
+  return assembled;
+}
+
+function requireSkillDedupStageRoot(): string {
+  if (skillDedupStageRoot === null) {
+    skillDedupStageRoot = joinPath(requireSkillPluginsRoot(), ".deduped");
+    mkdirSync(skillDedupStageRoot, { recursive: true });
+  }
+  return skillDedupStageRoot;
 }
 
 function requireSkillPluginsRoot(): string {
@@ -1276,13 +1316,13 @@ async function getWritableThreadSession(
     return undefined;
   }
   const replacement: ClaudeSessionRestart | null = threadSession.streamEnded
-      ? {
-          reason: "Thread session replaced after Claude SDK stream ended",
-          showRuntimeNote: false,
-        }
-      : intent === "new-turn"
-        ? threadSession.restartBeforeNextTurn
-        : null;
+    ? {
+        reason: "Thread session replaced after Claude SDK stream ended",
+        showRuntimeNote: false,
+      }
+    : intent === "new-turn"
+      ? threadSession.restartBeforeNextTurn
+      : null;
   if (replacement === null) {
     return threadSession;
   }
@@ -2052,7 +2092,8 @@ async function handleRequest(request: ClaudeCodeJsonRpcRequest): Promise<void> {
       sendResult(request.id, await closeThreadForStop(request.params.threadId));
       break;
     case "skills/configure":
-      configuredSkillRoots = assembleSkillPlugins(request.params.roots);
+      configuredSkillRootSources = request.params.roots;
+      skillPluginsBySessionCwd = new Map<string, ClaudeCodeSkillRoot[]>();
       sendResult(request.id, { ok: true });
       break;
   }
@@ -2221,7 +2262,7 @@ function toClaudeSessionParams(
     instructionMode: params.instructionMode,
     dynamicTools: params.dynamicTools,
     disallowedTools: params.disallowedTools,
-    skillRoots: configuredSkillRoots ?? undefined,
+    skillRoots: skillPluginsForSession(params.cwd),
   });
 }
 
