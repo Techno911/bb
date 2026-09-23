@@ -47,7 +47,10 @@ import { useRootComposeReuseEnvironment } from "@/lib/root-compose-selection";
 import { getPromptDraftAccessor } from "@/hooks/usePromptDraftStorage";
 import { makeThreadListEntry } from "@bb/test-helpers/domain-fixtures";
 import { createDeferredPromise } from "@bb/test-helpers";
-import type { PromptDraftAttachment } from "@bb/client-core";
+import {
+  buildThreadHandoffLocationState,
+  type PromptDraftAttachment,
+} from "@bb/client-core";
 import { makeProjectWithThreadsResponse } from "@/test/fixtures/projects";
 import { RootComposeView } from "@/views/RootComposeView";
 import { ROOT_COMPOSE_FIXED_PANEL_STATE_ID } from "@/views/RootComposePanelTabContent";
@@ -1619,6 +1622,75 @@ describe("PluginNewThreadComposer seeding", () => {
       );
     },
   );
+
+  it("hydrates a RootComposeView handoff draft and preserves its execution selection", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    mocks.projectThreads = [
+      makeThreadListEntry({
+        id: "thr_source",
+        projectId: "proj_1",
+        environmentId: "env-handoff",
+        environmentHostId: "host_1",
+        environmentName: "source",
+        environmentBranchName: "feature/source",
+        environmentProviderId: "git-worktree",
+        queuedWork: "none",
+      }),
+    ];
+    window.localStorage.setItem("bb.root-compose.project-id", "proj_1");
+    const router = createMemoryRouter(
+      [{ path: "/", element: <RootComposeView /> }],
+      {
+        initialEntries: [
+          {
+            pathname: "/",
+            state: buildThreadHandoffLocationState({
+              seed: {
+                environmentId: "env-handoff",
+                projectId: "proj_1",
+                sourceThreadId: "thr_source",
+                sourceThreadTitle: "Source thread",
+              },
+              execution: {
+                providerId: "codex",
+                model: "gpt-5.6-sol",
+                reasoningLevel: "medium",
+                serviceTier: "default",
+                supportsServiceTier: true,
+                permissionMode: "full",
+              },
+            }),
+          },
+        ],
+      },
+    );
+    render(
+      <Provider>
+        <QueryClientProvider client={queryClient}>
+          <RouterProvider router={router} />
+        </QueryClientProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(latestPromptBoxProps().value).toBe(
+        "Continue from @thread:thr_source",
+      );
+      expect(latestPromptBoxProps().execution.provider.selectedId).toBe(
+        "codex",
+      );
+      expect(latestPromptBoxProps().execution.model.selected).toBe(
+        "gpt-5.6-sol",
+      );
+      expect(latestPromptBoxProps().modeConfig.permission.value).toBe("full");
+    });
+    expect(latestPromptBoxProps().modeConfig.environment.value).toBe(
+      encodeReuseValue("env-handoff"),
+    );
+    expect(router.state.location.state).toBeNull();
+  });
 
   it("applies a replacing initial prompt from location state exactly once", async () => {
     const queryClient = new QueryClient({

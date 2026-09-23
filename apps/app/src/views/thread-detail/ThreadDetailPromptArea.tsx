@@ -89,6 +89,7 @@ import type { WorkspaceCheckoutDisplay } from "@/lib/workspace-checkout-display"
 import { useComposerTextEffects } from "@/lib/composer-text-effects";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { useThreadCreationOptions } from "@/hooks/useThreadCreationOptions";
+import { useOpenNewThreadPane } from "@/hooks/useOpenNewThreadPane";
 import { useProjectDisplayName } from "@/hooks/queries/sidebar-navigation-query";
 import {
   useActiveComposerDraft,
@@ -124,6 +125,7 @@ import { getThreadDisplayTitle } from "@/lib/thread-title";
 import {
   buildThreadHandoffCreateRequest,
   buildThreadHandoffFollowUpDraft,
+  buildThreadHandoffLocationState,
   stripThreadHandoffPrefix,
   type ThreadHandoffCreateSeed,
 } from "@bb/client-core";
@@ -429,6 +431,7 @@ export function ThreadDetailPromptArea({
   thread,
 }: ThreadDetailPromptAreaProps) {
   const navigate = useNavigate();
+  const openNewThreadPane = useOpenNewThreadPane();
   const defaultExecutionOptionsQuery = useThreadDefaultExecutionOptions(
     thread.id,
     {
@@ -742,6 +745,32 @@ export function ThreadDetailPromptArea({
       thread.projectId,
     ],
   );
+  const openHandoffComposer = useCallback(() => {
+    openNewThreadPane({
+      projectId: thread.projectId,
+      state: buildThreadHandoffLocationState({
+        seed: handoffSeed,
+        execution: {
+          providerId: selectedProviderId,
+          model: effectiveSelectedModel,
+          reasoningLevel,
+          serviceTier,
+          supportsServiceTier,
+          permissionMode,
+        },
+      }),
+    });
+  }, [
+    effectiveSelectedModel,
+    handoffSeed,
+    openNewThreadPane,
+    permissionMode,
+    reasoningLevel,
+    selectedProviderId,
+    serviceTier,
+    supportsServiceTier,
+    thread.projectId,
+  ]);
   const beginHandoff = useCallback(() => {
     setHandoffSourceSelection((current) =>
       current?.threadId === thread.id
@@ -1601,7 +1630,7 @@ export function ThreadDetailPromptArea({
       handoff: {
         sourceProviderId: thread.providerId,
         active: isHandoffSelection,
-        onStart: beginHandoff,
+        onStart: openHandoffComposer,
         onExit: exitHandoff,
         onSelect: handleHandoffSelect,
       },
@@ -1611,7 +1640,7 @@ export function ThreadDetailPromptArea({
       executionOptionsRouting,
       hasMultipleProviders,
       handleHandoffSelect,
-      beginHandoff,
+      openHandoffComposer,
       isHandoffSelection,
       exitHandoff,
       handleModelChange,

@@ -33,7 +33,10 @@ import {
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { workflowRow } from "@/test/fixtures/thread-timeline-rows";
-import type { PromptDraftAttachment } from "@bb/client-core";
+import {
+  THREAD_HANDOFF_CREATE_TARGET_LOCATION_STATE_KEY,
+  type PromptDraftAttachment,
+} from "@bb/client-core";
 import { BbHttpError } from "@/lib/sdk";
 import type { TypeaheadConfig } from "@/components/promptbox/PromptBoxInternal";
 import type { PluginComposerHost } from "@/components/plugin/plugin-composer-host";
@@ -59,6 +62,7 @@ const mocks = vi.hoisted(() => ({
   executionInputSources: {} as ExistingThreadExecutionInputSources,
   deleteQueuedMessageMutateAsync: vi.fn(),
   navigate: vi.fn(),
+  openNewThreadPane: vi.fn(),
   pluginComposerHost: null as PluginComposerHost | null,
   promptDraft: {
     addAttachment: vi.fn(),
@@ -102,6 +106,10 @@ vi.mock("react-router-dom", async (importOriginal) => {
     useNavigate: () => mocks.navigate,
   };
 });
+
+vi.mock("@/hooks/useOpenNewThreadPane", () => ({
+  useOpenNewThreadPane: () => mocks.openNewThreadPane,
+}));
 
 vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
   const { ComposerBannersSlot } = await vi.importActual<
@@ -370,6 +378,18 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
               }
             >
               Same provider handoff
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                execution.handoff?.onSelect({
+                  providerId: "codex",
+                  model: "gpt-5",
+                  reasoningLevel: "medium",
+                })
+              }
+            >
+              Unchanged provider handoff
             </button>
             <button
               type="button"
@@ -2192,6 +2212,45 @@ describe("ThreadDetailPromptArea", () => {
     expect(mocks.createQueuedMessageMutateAsync).not.toHaveBeenCalled();
   });
 
+  it("opens a handoff composer beside the source with its draft and execution seed", () => {
+    renderPromptArea({
+      thread: makeThread({
+        environmentId: "env_1",
+        id: "thr_source",
+        projectId: "proj_source",
+        title: "Source thread",
+        titleFallback: null,
+      }),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Start handoff" }));
+
+    expect(mocks.openNewThreadPane).toHaveBeenCalledExactlyOnceWith({
+      projectId: "proj_source",
+      state: {
+        focusPrompt: true,
+        reuseEnvironmentId: "env_1",
+        [THREAD_HANDOFF_CREATE_TARGET_LOCATION_STATE_KEY]: {
+          seed: {
+            environmentId: "env_1",
+            projectId: "proj_source",
+            sourceThreadId: "thr_source",
+            sourceThreadTitle: "Source thread",
+          },
+          execution: {
+            providerId: "codex",
+            model: "gpt-5",
+            reasoningLevel: "medium",
+            serviceTier: undefined,
+            supportsServiceTier: false,
+            permissionMode: "auto",
+          },
+        },
+      },
+    });
+    expect(mocks.promptDraft.setDraft).not.toHaveBeenCalled();
+  });
+
   it("creates a same-provider handoff with unchanged execution marked explicit", async () => {
     mocks.promptDraft.text = "Keep going";
     mocks.createThreadMutateAsync.mockResolvedValue({
@@ -2199,7 +2258,9 @@ describe("ThreadDetailPromptArea", () => {
       projectId: "proj_1",
     });
     renderPromptArea();
-    fireEvent.click(screen.getByRole("button", { name: "Start handoff" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Unchanged provider handoff" }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Submit composer" }));
 
     await waitFor(() =>
@@ -2229,7 +2290,9 @@ describe("ThreadDetailPromptArea", () => {
       projectId: "proj_1",
     });
     renderPromptArea();
-    fireEvent.click(screen.getByRole("button", { name: "Start handoff" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Unchanged provider handoff" }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Submit composer" }));
 
     await waitFor(() =>
@@ -2247,7 +2310,9 @@ describe("ThreadDetailPromptArea", () => {
   it("exits a same-provider handoff and preserves draft edits", () => {
     mocks.promptDraft.text = "Keep going";
     renderPromptArea();
-    fireEvent.click(screen.getByRole("button", { name: "Start handoff" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Unchanged provider handoff" }),
+    );
     expect(screen.getByTestId("submit-label").textContent).toBe("New thread");
     fireEvent.click(
       screen.getByRole("button", { name: "Same provider handoff" }),

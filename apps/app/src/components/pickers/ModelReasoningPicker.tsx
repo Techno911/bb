@@ -614,7 +614,6 @@ export function ModelReasoningPicker({
 
   const handleHandoffProviderSelect = useCallback(
     (providerId: string) => {
-      handoff?.onStart();
       setHandoffMode(true);
       setPreviewProviderId(
         providerId === selectedProviderId ? null : providerId,
@@ -625,7 +624,7 @@ export function ModelReasoningPicker({
       setSearchQuery("");
       setActiveIndex(-1);
     },
-    [handoff, selectedProviderId],
+    [selectedProviderId],
   );
   const handleProviderSelect = useCallback(
     (providerId: string) => {
@@ -654,8 +653,10 @@ export function ModelReasoningPicker({
     ],
   );
   const startHandoffMode = useCallback(() => {
-    handleHandoffProviderSelect(selectedProviderId);
-  }, [handleHandoffProviderSelect, selectedProviderId]);
+    handoff?.onStart();
+    setOpen(false);
+    resetBrowseState();
+  }, [handoff, resetBrowseState]);
   const exitHandoffMode = useCallback(() => {
     setHandoffMode(false);
     setHandoffReasoningLevel(null);

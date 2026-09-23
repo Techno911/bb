@@ -4,6 +4,11 @@ import type {
   ReasoningLevel,
   ServiceTier,
 } from "@bb/domain";
+import {
+  permissionModeSchema,
+  reasoningLevelSchema,
+  serviceTierSchema,
+} from "@bb/domain";
 import type { AppCreateThreadRequest } from "../api-types.js";
 import { promptDraftToInput, type PromptDraftState } from "./prompt-draft.js";
 
@@ -13,6 +18,9 @@ export interface ThreadHandoffCreateSeed {
   sourceThreadId: string;
   sourceThreadTitle: string;
 }
+
+export const THREAD_HANDOFF_CREATE_TARGET_LOCATION_STATE_KEY =
+  "threadHandoffCreateTarget";
 
 export function buildThreadHandoffPromptDraft(
   seed: ThreadHandoffCreateSeed,
@@ -43,6 +51,84 @@ export interface ThreadHandoffExecutionSelection {
   serviceTier: ServiceTier | undefined;
   supportsServiceTier: boolean;
   permissionMode: PermissionMode;
+}
+
+export interface ThreadHandoffCreateTarget {
+  execution: ThreadHandoffExecutionSelection;
+  seed: ThreadHandoffCreateSeed;
+}
+
+interface ThreadHandoffLocationState extends Record<string, unknown> {
+  focusPrompt: true;
+  reuseEnvironmentId?: string;
+  [THREAD_HANDOFF_CREATE_TARGET_LOCATION_STATE_KEY]: ThreadHandoffCreateTarget;
+}
+
+export function buildThreadHandoffLocationState(
+  target: ThreadHandoffCreateTarget,
+): ThreadHandoffLocationState {
+  return {
+    focusPrompt: true,
+    ...(target.seed.environmentId !== null
+      ? { reuseEnvironmentId: target.seed.environmentId }
+      : {}),
+    [THREAD_HANDOFF_CREATE_TARGET_LOCATION_STATE_KEY]: target,
+  };
+}
+
+export function readThreadHandoffCreateTargetFromLocationState(
+  state: unknown,
+): ThreadHandoffCreateTarget | null {
+  if (!state || typeof state !== "object") return null;
+  const candidate = (state as Record<string, unknown>)[
+    THREAD_HANDOFF_CREATE_TARGET_LOCATION_STATE_KEY
+  ];
+  if (!candidate || typeof candidate !== "object") return null;
+  const target = candidate as Record<string, unknown>;
+  if (!target.seed || typeof target.seed !== "object") return null;
+  if (!target.execution || typeof target.execution !== "object") return null;
+  const seed = target.seed as Record<string, unknown>;
+  const execution = target.execution as Record<string, unknown>;
+  if (
+    typeof seed.projectId !== "string" ||
+    seed.projectId.length === 0 ||
+    typeof seed.sourceThreadId !== "string" ||
+    seed.sourceThreadId.length === 0 ||
+    typeof seed.sourceThreadTitle !== "string" ||
+    seed.sourceThreadTitle.trim().length === 0 ||
+    (seed.environmentId !== null &&
+      typeof seed.environmentId !== "string") ||
+    typeof execution.providerId !== "string" ||
+    execution.providerId.length === 0 ||
+    typeof execution.model !== "string" ||
+    execution.model.length === 0 ||
+    !reasoningLevelSchema.safeParse(execution.reasoningLevel).success ||
+    !permissionModeSchema.safeParse(execution.permissionMode).success ||
+    (execution.serviceTier !== undefined &&
+      !serviceTierSchema.safeParse(execution.serviceTier).success) ||
+    typeof execution.supportsServiceTier !== "boolean"
+  ) {
+    return null;
+  }
+  return {
+    seed: {
+      environmentId:
+        typeof seed.environmentId === "string" && seed.environmentId.length > 0
+          ? seed.environmentId
+          : null,
+      projectId: seed.projectId,
+      sourceThreadId: seed.sourceThreadId,
+      sourceThreadTitle: seed.sourceThreadTitle.trim(),
+    },
+    execution: {
+      providerId: execution.providerId,
+      model: execution.model,
+      reasoningLevel: execution.reasoningLevel as ReasoningLevel,
+      serviceTier: execution.serviceTier as ServiceTier | undefined,
+      supportsServiceTier: execution.supportsServiceTier,
+      permissionMode: execution.permissionMode as PermissionMode,
+    },
+  };
 }
 
 interface BuildThreadHandoffCreateRequestArgs {

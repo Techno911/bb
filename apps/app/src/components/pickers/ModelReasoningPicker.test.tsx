@@ -671,7 +671,7 @@ describe("ModelReasoningPicker", () => {
     expect(onModelChange).toHaveBeenCalledWith("claude-opus-4-7");
   });
 
-  it("can hand off within the source provider and exit the picker mode", () => {
+  it("opens a new-thread handoff directly instead of changing the current composer mode", () => {
     const onSelect = vi.fn();
     const onExit = vi.fn();
     const onStart = vi.fn();
@@ -694,14 +694,12 @@ describe("ModelReasoningPicker", () => {
       screen.getByRole("button", { name: "Handoff to new thread" }),
     );
     expect(onStart).toHaveBeenCalledOnce();
-    fireEvent.click(screen.getByRole("button", { name: "5.5" }));
-    expect(onSelect).toHaveBeenCalledWith(
-      expect.objectContaining({ providerId: "codex" }),
-    );
+    expect(
+      screen.queryByRole("button", { name: "Exit handoff" }),
+    ).toBeNull();
+    expect(onSelect).not.toHaveBeenCalled();
     expect(onModelChange).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Exit handoff" }));
-    expect(onExit).toHaveBeenCalledOnce();
-    expect(screen.queryByRole("button", { name: "Exit handoff" })).toBeNull();
+    expect(onExit).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -739,9 +737,6 @@ describe("ModelReasoningPicker", () => {
         });
       fireEvent.click(
         screen.getByRole("button", { name: "Provider, model and reasoning" }),
-      );
-      fireEvent.click(
-        screen.getByRole("button", { name: "Handoff to new thread" }),
       );
       fireEvent.click(screen.getByTitle("Claude Code"));
       await screen.findByText("Opus 4.7");
@@ -787,9 +782,6 @@ describe("ModelReasoningPicker", () => {
       });
       fireEvent.click(
         screen.getByRole("button", { name: "Provider, model and reasoning" }),
-      );
-      fireEvent.click(
-        screen.getByRole("button", { name: "Handoff to new thread" }),
       );
       fireEvent.click(screen.getByTitle("Claude Code"));
       await screen.findByText("Opus 4.7");
