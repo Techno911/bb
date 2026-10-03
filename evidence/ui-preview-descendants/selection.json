@@ -1,0 +1,64 @@
+{
+  "sourceSha": "f3c102256c5e7f3a4f097f6c6724bf5ba13ee343",
+  "diffBase": "57fdd8f10436f917ac3df9b1b01bd388209d4d54^",
+  "artifacts": {
+    "zoom.patch": {
+      "bytes": 124022,
+      "sha256": "ffabf310d5e7649791983a99857f9f18717ad4013ca2cf98a56bd7a2c64844e1",
+      "paths": [
+        "apps/app/src/components/secondary-panel/FilePreview.test.tsx",
+        "apps/app/src/components/secondary-panel/FilePreview.tsx",
+        "apps/app/src/components/secondary-panel/ThreadSecondaryPanelTabContent.tsx",
+        "apps/app/src/components/secondary-panel/ThreadStorageFilePreview.tsx",
+        "apps/app/src/components/ui/image-lightbox.interaction.test.tsx",
+        "apps/app/src/components/ui/image-lightbox.tsx",
+        "apps/app/src/components/ui/markdown-mermaid-diagram.test.ts",
+        "apps/app/src/components/ui/markdown-mermaid-diagram.tsx",
+        "apps/app/src/components/ui/preview-camera.test.tsx",
+        "apps/app/src/lib/file-content-urls.ts",
+        "apps/app/src/lib/fixed-panel-tabs-sync.test.ts",
+        "apps/app/src/views/thread-detail/ThreadDetailView.tsx",
+        "apps/cli/src/__tests__/command-output/thread-organization.test.ts",
+        "apps/desktop/src/main.ts",
+        "apps/desktop/src/preview-zoom-router.ts",
+        "apps/desktop/test/preview-zoom-router.test.ts",
+        "apps/server/src/routes/files.ts",
+        "apps/server/src/routes/threads/data.ts",
+        "apps/server/src/services/hosts/daemon-file-response.ts",
+        "apps/server/src/services/hosts/html-preview-camera-bridge.ts",
+        "apps/server/test/files/host-file-routes.test.ts",
+        "apps/server/test/hosts/html-preview-camera-bridge.test.ts",
+        "apps/server/test/public/public-thread-tabs.test.ts",
+        "packages/client-core/src/panel/fixed-panel-tabs-state.ts",
+        "packages/server-contract/src/api/preview-camera-bridge.ts",
+        "packages/server-contract/src/api/thread-tabs.ts",
+        "packages/server-contract/src/api/threads.ts",
+        "packages/server-contract/src/index.ts",
+        "packages/server-contract/src/public-api.ts",
+        "packages/server-contract/test/contract.test.ts",
+        "packages/server-contract/test/preview-camera-bridge.test.ts",
+        "packages/server-contract/test/thread-tabs.test.ts",
+        "packages/shared-ui/package.json",
+        "packages/shared-ui/src/components/ui/preview-camera-math.ts",
+        "packages/shared-ui/src/components/ui/preview-camera.tsx",
+        "packages/templates/src/templates/bb-guide-threads.md",
+        "plugins/bb-guide/skills/bb-cli/references/command-index.md",
+        "plugins/inline-vis/app.test.tsx",
+        "plugins/inline-vis/app.tsx",
+        "pnpm-lock.yaml"
+      ]
+    },
+    "indicator.patch": {
+      "bytes": 16263,
+      "sha256": "3b65a85ec1b4a9398e412cacd4ecd5a9483c64ec24364b1cdf5d5c8bd9113251",
+      "paths": [
+        "plugins/thread-list/app/list/ProjectRow.tsx",
+        "plugins/thread-list/app/model/project-thread-groups.test.ts",
+        "plugins/thread-list/app/model/project-thread-groups.ts",
+        "plugins/thread-list/app/model/thread-activity.ts",
+        "plugins/thread-list/app/rows/ThreadRow.test.tsx",
+        "plugins/thread-list/app/rows/ThreadRow.tsx"
+      ]
+    }
+  }
+}

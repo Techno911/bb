@@ -1,0 +1,450 @@
+diff --git a/plugins/thread-list/app/list/ProjectRow.tsx b/plugins/thread-list/app/list/ProjectRow.tsx
+index cfb54f551..f9d18a0eb 100644
+--- a/plugins/thread-list/app/list/ProjectRow.tsx
++++ b/plugins/thread-list/app/list/ProjectRow.tsx
+@@ -95,6 +95,7 @@ import type {
+ } from "../model/sidebar-section-id.js";
+ import {
+   getCollapsedChildActivity,
++  isBusyThread,
+   NO_COLLAPSED_CHILD_ACTIVITY,
+   type CollapsedChildActivity,
+ } from "../model/thread-activity.js";
+@@ -468,11 +469,13 @@ function getThreadRowDepth({
+ }
+ 
+ function getThreadRowOptions({
++  activeDescendantCount,
+   childActivity,
+   childCount,
+   consumeClickSuppression,
+   dragBindings,
+   depthOffset,
++  getActiveDescendants,
+   isCollapsed,
+   isEnvGrouped,
+   isParent,
+@@ -504,14 +507,18 @@ function getThreadRowOptions({
+     isCollapsed,
+     childCount,
+     childActivity,
++    activeDescendantCount,
++    getActiveDescendants,
+     ...(stickyLevel !== undefined ? { stickyLevel } : {}),
+     onToggleCollapsed: onToggleThreadCollapsed,
+   };
+ }
+ 
+ interface GetThreadRowOptionsArgs {
++  activeDescendantCount: number;
+   childActivity: CollapsedChildActivity;
+   childCount: number;
++  getActiveDescendants: () => readonly SidebarThread[];
+   consumeClickSuppression?: ConsumeDragClickSuppression;
+   dragBindings?: SidebarSortableDragBindings;
+   isCollapsed: boolean;
+@@ -1654,6 +1661,9 @@ export const ThreadTreeNodeRow = memo(function ThreadTreeNodeRow({
+       getThreadRowOptions({
+         childActivity: node.stats.childActivity,
+         childCount: node.stats.childCount,
++        activeDescendantCount: node.stats.activeDescendantCount ?? 0,
++        getActiveDescendants: () =>
++          getProjectThreadItemDescendants(node.children).filter(isBusyThread),
+         consumeClickSuppression,
+         dragBindings,
+         depthOffset,
+diff --git a/plugins/thread-list/app/model/project-thread-groups.test.ts b/plugins/thread-list/app/model/project-thread-groups.test.ts
+index 1f87f70a1..59afbc6de 100644
+--- a/plugins/thread-list/app/model/project-thread-groups.test.ts
++++ b/plugins/thread-list/app/model/project-thread-groups.test.ts
+@@ -118,6 +118,50 @@ function findNode(
+ }
+ 
+ describe("buildProjectThreadGroups", () => {
++  it("counts distinct busy descendants at every depth and excludes the parent", () => {
++    const items = buildProjectThreadGroups([
++      createThread({ id: "root", status: "active", runtimeStatus: "active" }),
++      createThread({
++        id: "child",
++        parentThreadId: "root",
++        status: "idle",
++        runtimeStatus: "idle",
++      }),
++      createThread({
++        id: "busy-grandchild",
++        parentThreadId: "child",
++        status: "active",
++        runtimeStatus: "active",
++      }),
++      createThread({
++        id: "busy-sibling",
++        projectId: "proj_other",
++        parentThreadId: "root",
++        status: "idle",
++        runtimeStatus: "idle",
++        activity: { backgroundAgents: 1 },
++      }),
++      createThread({
++        id: "queued",
++        parentThreadId: "root",
++        status: "idle",
++        runtimeStatus: "idle",
++        queuedWork: "waiting",
++      }),
++      createThread({
++        id: "failed",
++        parentThreadId: "root",
++        status: "error",
++        runtimeStatus: "error",
++      }),
++    ]);
++
++    const root = findNode(items, "root");
++    const child = findNode(items, "child");
++    expect(root?.stats.activeDescendantCount).toBe(2);
++    expect(child?.stats.activeDescendantCount).toBe(1);
++  });
++
+   it("nests threads recursively from parentThreadId regardless of thread type", () => {
+     const rootItems = buildProjectThreadGroups([
+       createThread({
+@@ -502,6 +546,7 @@ describe("buildProjectThreadGroups", () => {
+         unreadError: false,
+       },
+       childCount: 3,
++      activeDescendantCount: 1,
+     });
+     expect(findNode(rootItems, "quiet-child")?.stats).toEqual({
+       childActivity: {
+@@ -518,6 +563,7 @@ describe("buildProjectThreadGroups", () => {
+         unreadError: false,
+       },
+       childCount: 2,
++      activeDescendantCount: 1,
+     });
+   });
+ 
+diff --git a/plugins/thread-list/app/model/project-thread-groups.ts b/plugins/thread-list/app/model/project-thread-groups.ts
+index 19ef68798..ae9f742d2 100644
+--- a/plugins/thread-list/app/model/project-thread-groups.ts
++++ b/plugins/thread-list/app/model/project-thread-groups.ts
+@@ -3,12 +3,14 @@ import { buildSectionKey } from "./section-keys.js";
+ import type { SidebarThread } from "./sidebar-thread.js";
+ import {
+   getCollapsedChildActivity,
++  isBusyThread,
+   type CollapsedChildActivity,
+ } from "./thread-activity.js";
+ 
+ interface ProjectThreadNodeStats {
+   childCount: number;
+   childActivity: CollapsedChildActivity;
++  activeDescendantCount?: number;
+ }
+ 
+ export interface ProjectThreadNode {
+@@ -169,10 +171,12 @@ export function getProjectThreadItemDescendants(
+ function buildStatsForHiddenThreads(
+   threads: readonly SidebarThread[],
+   draftThreadIds: ReadonlySet<string>,
++  activeDescendantCount = 0,
+ ): ProjectThreadNodeStats {
+   return {
+     childCount: threads.length,
+     childActivity: getCollapsedChildActivity(threads, draftThreadIds),
++    activeDescendantCount,
+   };
+ }
+ 
+@@ -283,6 +287,13 @@ function buildThreadNode({
+     groupEnvironmentThreads,
+     draftThreadIds,
+   );
++  const activeDescendantCount = childNodes.reduce(
++    (count, child) =>
++      count +
++      (child.stats.activeDescendantCount ?? 0) +
++      Number(isBusyThread(child.thread)),
++    0,
++  );
+   return {
+     thread,
+     children,
+@@ -290,6 +301,7 @@ function buildThreadNode({
+     stats: buildStatsForHiddenThreads(
+       getProjectThreadItemDescendants(children),
+       draftThreadIds,
++      activeDescendantCount,
+     ),
+   };
+ }
+diff --git a/plugins/thread-list/app/model/thread-activity.ts b/plugins/thread-list/app/model/thread-activity.ts
+index d7acf9872..68bad693c 100644
+--- a/plugins/thread-list/app/model/thread-activity.ts
++++ b/plugins/thread-list/app/model/thread-activity.ts
+@@ -62,7 +62,7 @@ function hasActiveGoalActivity(thread: ThreadActivityStateShape): boolean {
+   return thread.activity.goals > 0;
+ }
+ 
+-function isBusyThread(
++export function isBusyThread(
+   thread: ThreadRuntimeShape & ThreadActivityStateShape,
+ ): boolean {
+   return (
+diff --git a/plugins/thread-list/app/rows/ThreadRow.test.tsx b/plugins/thread-list/app/rows/ThreadRow.test.tsx
+index 1ece81a2f..59d02fea6 100644
+--- a/plugins/thread-list/app/rows/ThreadRow.test.tsx
++++ b/plugins/thread-list/app/rows/ThreadRow.test.tsx
+@@ -217,6 +217,79 @@ afterEach(() => {
+ });
+ 
+ describe("ThreadRow", () => {
++  it("opens active descendants with keyboard-operable SDK navigation", async () => {
++    const root = createThread({
++      id: "root",
++      title: "Root",
++      status: "error",
++      runtimeStatus: "error",
++    });
++    const descendant = createThread({
++      id: "grandchild",
++      title: "Busy grandchild",
++      parentThreadId: "child",
++      runtimeStatus: "active",
++      status: "active",
++    });
++    const parentOptions: ThreadRowOptions = {
++      kind: "parent",
++      depth: 1,
++      isCompact: false,
++      isCollapsed: true,
++      childCount: 2,
++      childActivity: NO_COLLAPSED_CHILD_ACTIVITY,
++      activeDescendantCount: 1,
++      getActiveDescendants: () => [descendant],
++      onToggleCollapsed: vi.fn(),
++    };
++    const slot = renderThreadRow({
++      thread: root,
++      options: parentOptions,
++      splitLayout: twoPaneLayout(root.id),
++    });
++    expect(
++      screen.getByLabelText("Root — open in split; Unread thread failed"),
++    ).toBeTruthy();
++    const trigger = screen.getByRole("button", {
++      name: "1 работающих потомков",
++    });
++
++    trigger.focus();
++    fireEvent.keyDown(trigger, { key: "Enter" });
++    await screen.findByRole("menuitem", { name: "Busy grandchild" });
++    fireEvent.click(screen.getByRole("menuitem", { name: "Busy grandchild" }));
++
++    expect(slot.inspection.navigateCalls).toContainEqual({
++      method: "toThread",
++      threadId: "grandchild",
++    });
++
++    slot.lifecycle.rerender(
++      <ThreadRowHarness
++        thread={root}
++        options={{ ...parentOptions, isCollapsed: false }}
++      />,
++    );
++    expect(
++      screen.getByRole("button", { name: "1 работающих потомков" }),
++    ).toBeTruthy();
++
++    slot.lifecycle.rerender(
++      <ThreadRowHarness
++        thread={root}
++        options={{
++          ...parentOptions,
++          isCollapsed: false,
++          activeDescendantCount: 0,
++          getActiveDescendants: () => [],
++        }}
++      />,
++    );
++    expect(
++      screen.queryByRole("button", { name: "0 работающих потомков" }),
++    ).toBeNull();
++  });
++
+   it("shows a labeled provider icon only for a registered provider when enabled", () => {
+     const provider: PluginProvidersState["providers"][number] = {
+       id: "provider-test",
+diff --git a/plugins/thread-list/app/rows/ThreadRow.tsx b/plugins/thread-list/app/rows/ThreadRow.tsx
+index a9309a803..fb7e560f1 100644
+--- a/plugins/thread-list/app/rows/ThreadRow.tsx
++++ b/plugins/thread-list/app/rows/ThreadRow.tsx
+@@ -1,6 +1,7 @@
+ import {
+   memo,
+   useCallback,
++  useEffect,
+   useMemo,
+   useRef,
+   useState,
+@@ -17,6 +18,15 @@ import {
+   TooltipContent,
+   TooltipTrigger,
+ } from "@/components/ui/tooltip";
++import {
++  DropdownMenu,
++  DropdownMenuContent,
++  DropdownMenuItem,
++  DropdownMenuLabel,
++  DropdownMenuSeparator,
++  DropdownMenuTrigger,
++} from "@/components/ui/dropdown-menu";
++import { Button } from "@/components/ui/button";
+ import {
+   COARSE_POINTER_COMPACT_ROW_HEIGHT_CLASS,
+   COARSE_POINTER_ROW_ACTION_SIZE_CLASS,
+@@ -34,6 +44,7 @@ import {
+ import { threadModelRowLabel } from "../model/model-label.js";
+ import {
+   experimental_useSidebarThreadActions,
++  useBbNavigate,
+   experimental_useSidebarThreadSplit,
+   experimental_useProviders,
+   experimental_ProviderIcon as ProviderIcon,
+@@ -126,6 +137,8 @@ export type ThreadRowOptions =
+       isCollapsed: boolean;
+       childCount: number;
+       childActivity: CollapsedChildActivity;
++      activeDescendantCount?: number;
++      getActiveDescendants?: () => readonly SidebarThread[];
+       stickyLevel?: number;
+       onToggleCollapsed: (threadId: string) => void;
+     });
+@@ -318,6 +331,7 @@ function ThreadRowComponent({
+   const [isDropdownActionsOpen, setIsDropdownActionsOpen] = useState(false);
+   const [isContextActionsOpen, setIsContextActionsOpen] = useState(false);
+   const actions = experimental_useSidebarThreadActions();
++  const navigate = useBbNavigate();
+   const showProviderIcons = useAtomValue(sidebarShowProviderIconsAtom);
+   const { providers } = experimental_useProviders();
+   const provider = showProviderIcons
+@@ -375,6 +389,15 @@ function ThreadRowComponent({
+   const childCount = parentOptions?.childCount ?? 0;
+   const childActivity =
+     parentOptions?.childActivity ?? NO_COLLAPSED_CHILD_ACTIVITY;
++  const activeDescendantCount = parentOptions?.activeDescendantCount ?? 0;
++  const [activeDescendants, setActiveDescendants] = useState<
++    readonly SidebarThread[]
++  >([]);
++  const [isDescendantsMenuOpen, setIsDescendantsMenuOpen] = useState(false);
++  useEffect(() => {
++    if (!isDescendantsMenuOpen || !parentOptions?.getActiveDescendants) return;
++    setActiveDescendants(parentOptions.getActiveDescendants());
++  }, [activeDescendantCount, isDescendantsMenuOpen, parentOptions]);
+   const hasChildren = childCount > 0;
+   const reserveActionSpace =
+     crossProjectLabel !== null || (isParentRow && hasChildren);
+@@ -496,7 +519,9 @@ function ThreadRowComponent({
+           !shortcut &&
+             !isEditing &&
+             (reserveActionSpace
+-              ? "pr-7.5 max-md:pointer-coarse:pr-0"
++              ? activeDescendantCount > 0
++                ? "pr-0"
++                : "pr-7.5 max-md:pointer-coarse:pr-0"
+               : SIDEBAR_HOVER_ACTIONS_INSET_CLASS),
+         )}
+       >
+@@ -668,14 +693,19 @@ function ThreadRowComponent({
+         ) : (
+           <span
+             className={cn(
+-              "flex shrink-0 items-center justify-end max-md:pointer-coarse:pointer-events-none",
++              "flex shrink-0 items-center justify-end",
++              activeDescendantCount === 0 &&
++                "max-md:pointer-coarse:pointer-events-none",
+               COARSE_POINTER_COMPACT_ROW_HEIGHT_CLASS,
++              activeDescendantCount > 0 && "w-28 max-md:pointer-coarse:w-14",
+             )}
+           >
+             <span
+               className={cn(
+                 "relative shrink-0",
+                 COARSE_POINTER_ROW_ACTION_SIZE_CLASS,
++                activeDescendantCount > 0 &&
++                  "w-28 max-md:pointer-coarse:w-14",
+               )}
+             >
+               <span
+@@ -684,7 +714,9 @@ function ThreadRowComponent({
+                 }
+                 className={cn(
+                   SIDEBAR_HOVER_ACTIONS_FADE_CLASS,
+-                  "absolute inset-0 flex items-center justify-center",
++                  activeDescendantCount > 0
++                    ? "absolute inset-y-0 left-8 right-[3.625rem] flex items-center justify-center max-md:pointer-coarse:right-0"
++                    : "absolute inset-0 flex items-center justify-center",
+                 )}
+               >
+                 {miniMap ? (
+@@ -711,6 +743,60 @@ function ThreadRowComponent({
+                   />
+                 )}
+               </span>
++              {activeDescendantCount > 0 ? (
++                <DropdownMenu
++                  onOpenChange={(open) => {
++                    setIsDescendantsMenuOpen(open);
++                    setActiveDescendants(
++                      open
++                        ? (parentOptions?.getActiveDescendants?.() ?? [])
++                        : [],
++                    );
++                  }}
++                >
++                  <DropdownMenuTrigger asChild>
++                    <Button
++                      type="button"
++                      variant="ghost"
++                      size="sm"
++                      aria-label={`${activeDescendantCount} работающих потомков`}
++                      data-sidebar-thread-descendant-activity={thread.id}
++                      className="absolute inset-y-0 left-0 z-20 inline-flex h-7 min-w-7 items-center gap-0.5 px-1 text-muted-foreground hover:text-foreground focus-visible:ring-2 max-md:pointer-coarse:h-9 max-md:pointer-coarse:min-w-9"
++                      onClick={(event) => event.stopPropagation()}
++                      onPointerDown={(event) => event.stopPropagation()}
++                    >
++                      <Icon
++                        name="GitBranch"
++                        aria-hidden="true"
++                        className="size-3.5 animate-pulse motion-reduce:animate-none"
++                      />
++                      <span className="tabular-nums">
++                        {activeDescendantCount}
++                      </span>
++                    </Button>
++                  </DropdownMenuTrigger>
++                  <DropdownMenuContent
++                    align="end"
++                    side="bottom"
++                    className="max-h-64 w-64 overflow-y-auto"
++                  >
++                    <DropdownMenuLabel>
++                      Работающие потомки ({activeDescendantCount})
++                    </DropdownMenuLabel>
++                    <DropdownMenuSeparator />
++                    {activeDescendants.map((descendant) => (
++                      <DropdownMenuItem
++                        key={descendant.id}
++                        onSelect={() => navigate.toThread(descendant.id)}
++                      >
++                        <span className="min-w-0 truncate">
++                          {descendant.displayTitle}
++                        </span>
++                      </DropdownMenuItem>
++                    ))}
++                  </DropdownMenuContent>
++                </DropdownMenu>
++              ) : null}
+               <div
+                 data-sidebar-hover-actions-open={
+                   isActionsOpen ? "true" : undefined

@@ -1,0 +1,3021 @@
+diff --git a/apps/app/src/components/secondary-panel/FilePreview.test.tsx b/apps/app/src/components/secondary-panel/FilePreview.test.tsx
+index ee098a661..a91cbed05 100644
+--- a/apps/app/src/components/secondary-panel/FilePreview.test.tsx
++++ b/apps/app/src/components/secondary-panel/FilePreview.test.tsx
+@@ -690,10 +690,32 @@ describe("FilePreview", () => {
+         .getAttribute("aria-pressed"),
+     ).toBe("true");
+     const iframe = container.querySelector("iframe");
+-    expect(iframe?.getAttribute("src")).toBe("/preview/docs/report.html");
++    const iframeUrl = new URL(iframe?.getAttribute("src") ?? "", "https://bb.test");
++    expect(iframeUrl.pathname).toBe("/preview/docs/report.html");
++    expect(iframeUrl.searchParams.get("__bbPreviewCamera")).toMatch(/^[0-9a-f-]{36}$/u);
+     expect(iframe?.closest('[aria-hidden="true"]')).toBeNull();
+   });
+ 
++  it("commits iframe zoom from the active preview camera", async () => {
++    const onPreviewZoomChange = vi.fn();
++    render(
++      <FilePreview
++        path="reports/example.html"
++        previewZoom={2}
++        onPreviewZoomChange={onPreviewZoomChange}
++        state={{
++          kind: "iframe",
++          sandbox: "allow-scripts",
++          title: "reports/example.html",
++          url: "/preview/reports/example.html",
++        }}
++      />,
++    );
++    expect(screen.getByLabelText("Zoom level").textContent).toBe("200%");
++    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
++    await waitFor(() => expect(onPreviewZoomChange).toHaveBeenCalledWith(2.5));
++  });
++
+   it("renders CSV previews as a table by default", () => {
+     mockCsvTableLayout();
+     render(
+diff --git a/apps/app/src/components/secondary-panel/FilePreview.tsx b/apps/app/src/components/secondary-panel/FilePreview.tsx
+index ee445e599..9ed974fad 100644
+--- a/apps/app/src/components/secondary-panel/FilePreview.tsx
++++ b/apps/app/src/components/secondary-panel/FilePreview.tsx
+@@ -41,6 +41,7 @@ import {
+ import { cn } from "@bb/shared-ui/lib/utils";
+ import { SecondaryPanelSelectionActions } from "./SecondaryPanelSelectionActions.js";
+ import { useImageTabLightbox } from "./ImageTabLightboxContext.js";
++import { PreviewCamera } from "@bb/shared-ui/preview-camera";
+ 
+ export interface FilePreviewFile {
+   cacheKey?: string;
+@@ -56,6 +57,11 @@ interface IframeFilePreviewTarget {
+   url: string;
+ }
+ 
++interface IframeFilePreviewProps extends IframeFilePreviewTarget {
++  initialScale?: number;
++  onScaleCommit?: (scale: number) => void;
++}
++
+ export type FilePreviewState =
+   | { kind: "loading" }
+   | { kind: "empty" }
+@@ -89,6 +95,8 @@ interface FilePreviewProps {
+   isRefreshing?: boolean;
+   markdownLinkRouting?: MarkdownLinkRouting;
+   statusLabel?: WorkspaceFilePreviewStatusLabel | null;
++  previewZoom?: number;
++  onPreviewZoomChange?: (scale: number) => void;
+ }
+ 
+ interface FilePreviewBodyProps {
+@@ -98,6 +106,8 @@ interface FilePreviewBodyProps {
+   viewMode: FilePreviewViewMode;
+   markdownLinkRouting?: MarkdownLinkRouting;
+   onSelectionAddToChat?: (text: string) => void;
++  previewZoom?: number;
++  onPreviewZoomChange?: (scale: number) => void;
+ }
+ 
+ interface HtmlFilePreviewBodyProps {
+@@ -105,6 +115,8 @@ interface HtmlFilePreviewBodyProps {
+   onSelectionAddToChat?: (text: string) => void;
+   state: Extract<FilePreviewState, { kind: "html" }>;
+   viewMode: FilePreviewViewMode;
++  previewZoom?: number;
++  onPreviewZoomChange?: (scale: number) => void;
+ }
+ 
+ interface FilePreviewHeaderProps {
+@@ -196,11 +208,6 @@ const FILE_PREVIEW_WRAPPER_STYLE = {
+   "--md-content-w": "100cqi",
+ } as CSSProperties;
+ 
+-const HTML_FILE_PREVIEW_IFRAME_STYLE = {
+-  width: "100%",
+-  height: "100%",
+-  border: 0,
+-} as CSSProperties;
+ const IFRAME_LOADING_INDICATOR_DELAY_MS = 160;
+ const FILE_PREVIEW_HEADER_ICON_BUTTON_CLASS =
+   "h-5 w-5 rounded-sm p-0 [&_[data-icon-root]]:size-3 max-md:pointer-coarse:h-9 max-md:pointer-coarse:w-9 max-md:pointer-coarse:[&_[data-icon-root]]:size-5";
+@@ -431,6 +438,8 @@ export function FilePreview({
+   isRefreshing = false,
+   markdownLinkRouting,
+   statusLabel = null,
++  previewZoom,
++  onPreviewZoomChange,
+ }: FilePreviewProps) {
+   const toggleKind = getFilePreviewToggleKind(state);
+   const filePreviewLineRange = getFilePreviewLineRange(state);
+@@ -509,6 +518,8 @@ export function FilePreview({
+         viewMode={bodyViewMode}
+         markdownLinkRouting={markdownLinkRouting}
+         onSelectionAddToChat={onSelectionAddToChat}
++        previewZoom={previewZoom}
++        onPreviewZoomChange={onPreviewZoomChange}
+       />
+     </div>
+   );
+@@ -521,6 +532,8 @@ function FilePreviewBody({
+   viewMode,
+   markdownLinkRouting,
+   onSelectionAddToChat,
++  previewZoom,
++  onPreviewZoomChange,
+ }: FilePreviewBodyProps) {
+   if (state.kind === "loading") {
+     return <SourceLoadingSkeleton />;
+@@ -554,6 +567,8 @@ function FilePreviewBody({
+         sandbox={state.sandbox}
+         title={state.title}
+         url={state.url}
++        initialScale={previewZoom}
++        onScaleCommit={onPreviewZoomChange}
+       />
+     );
+   }
+@@ -564,6 +579,8 @@ function FilePreviewBody({
+         onSelectionAddToChat={onSelectionAddToChat}
+         state={state}
+         viewMode={viewMode}
++        previewZoom={previewZoom}
++        onPreviewZoomChange={onPreviewZoomChange}
+       />
+     );
+   }
+@@ -861,6 +878,8 @@ function HtmlFilePreviewBody({
+   onSelectionAddToChat,
+   state,
+   viewMode,
++  previewZoom,
++  onPreviewZoomChange,
+ }: HtmlFilePreviewBodyProps) {
+   const isPreviewVisible = viewMode === "preview";
+   return (
+@@ -870,10 +889,12 @@ function HtmlFilePreviewBody({
+         aria-hidden={isPreviewVisible ? undefined : true}
+       >
+         <IframeFilePreview
+-          key={state.file.cacheKey}
++          key={state.file.cacheKey ?? state.file.name}
+           sandbox={state.iframe.sandbox}
+           title={state.iframe.title}
+           url={state.iframe.url}
++          initialScale={previewZoom}
++          onScaleCommit={onPreviewZoomChange}
+         />
+       </div>
+       <div
+@@ -1089,7 +1110,13 @@ function FilePreviewVideo({ url, title }: FilePreviewVideoProps) {
+   );
+ }
+ 
+-function IframeFilePreview({ sandbox, title, url }: IframeFilePreviewTarget) {
++function IframeFilePreview({
++  sandbox,
++  title,
++  url,
++  initialScale,
++  onScaleCommit,
++}: IframeFilePreviewProps) {
+   const [loadState, setLoadState] = useState<IframeLoadState>("loading");
+   const [showLoadingIndicator, setShowLoadingIndicator] = useState(false);
+ 
+@@ -1131,13 +1158,15 @@ function IframeFilePreview({ sandbox, title, url }: IframeFilePreviewTarget) {
+           <SourceLoadingSkeleton />
+         </div>
+       ) : null}
+-      <iframe
++      <PreviewCamera
+         title={title}
+         src={url}
+         sandbox={sandbox}
+-        style={HTML_FILE_PREVIEW_IFRAME_STYLE}
+-        onLoad={() => setLoadState("loaded")}
+-        onError={() => setLoadState("error")}
++        initialScale={initialScale}
++        onScaleCommit={onScaleCommit}
++        className="absolute inset-0"
++        onFrameLoad={() => setLoadState("loaded")}
++        onFrameError={() => setLoadState("error")}
+       />
+     </div>
+   );
+diff --git a/apps/app/src/components/secondary-panel/ThreadSecondaryPanelTabContent.tsx b/apps/app/src/components/secondary-panel/ThreadSecondaryPanelTabContent.tsx
+index 494dc2623..67eceaae7 100644
+--- a/apps/app/src/components/secondary-panel/ThreadSecondaryPanelTabContent.tsx
++++ b/apps/app/src/components/secondary-panel/ThreadSecondaryPanelTabContent.tsx
+@@ -60,6 +60,8 @@ interface GitDiffTabContentProps {
+ 
+ interface WorkspaceFilePreviewTabContentProps {
+   activePath: string;
++  previewZoom?: number;
++  onPreviewZoomChange?: (scale: number) => void;
+   isPanelOpen: boolean;
+   copyPath?: string | null;
+   environmentId?: string | null;
+@@ -89,6 +91,8 @@ interface ProjectFilePreviewTabContentProps {
+ 
+ interface HostFilePreviewTabContentProps {
+   activePath: string;
++  previewZoom?: number;
++  onPreviewZoomChange?: (scale: number) => void;
+   isPanelOpen: boolean;
+   copyPath: string;
+   environmentId?: string | null;
+@@ -109,6 +113,8 @@ interface HostScopedFilePreviewTabContentProps {
+ 
+ interface ThreadStorageFilePreviewTabContentProps {
+   activePath: string;
++  previewZoom?: number;
++  onPreviewZoomChange?: (scale: number) => void;
+   isPanelOpen: boolean;
+   copyPath?: string | null;
+   lineRange: FilePreviewLineRange | null;
+@@ -316,6 +322,8 @@ export function GitDiffTabContent({
+ 
+ export function WorkspaceFilePreviewTabContent({
+   activePath,
++  previewZoom,
++  onPreviewZoomChange,
+   copyPath = null,
+   environmentId,
+   isPanelOpen,
+@@ -381,6 +389,8 @@ export function WorkspaceFilePreviewTabContent({
+     <SecondaryPanelFilePreview
+       {...filePreviewQueryProps(workspaceFilePreviewQuery)}
+       activePath={activePath}
++      previewZoom={previewZoom}
++      onPreviewZoomChange={onPreviewZoomChange}
+       copyPath={copyPath}
+       htmlPreviewUrl={
+         threadId && source?.kind === "working-tree"
+@@ -457,6 +467,8 @@ export function ProjectFilePreviewTabContent({
+ 
+ export function HostFilePreviewTabContent({
+   activePath,
++  previewZoom,
++  onPreviewZoomChange,
+   copyPath,
+   environmentId,
+   isPanelOpen,
+@@ -489,6 +501,8 @@ export function HostFilePreviewTabContent({
+     <SecondaryPanelFilePreview
+       {...filePreviewQueryProps(hostFilePreviewQuery)}
+       activePath={activePath}
++      previewZoom={previewZoom}
++      onPreviewZoomChange={onPreviewZoomChange}
+       copyPath={copyPath}
+       htmlPreviewUrl={buildRawFilesystemHtmlContentUrl(threadId, activePath)}
+       lineRange={lineRange}
+@@ -534,6 +548,8 @@ export function HostScopedFilePreviewTabContent({
+ 
+ export function ThreadStorageFilePreviewTabContent({
+   activePath,
++  previewZoom,
++  onPreviewZoomChange,
+   copyPath = null,
+   isPanelOpen,
+   lineRange,
+@@ -562,6 +578,8 @@ export function ThreadStorageFilePreviewTabContent({
+     <SecondaryPanelFilePreview
+       {...filePreviewQueryProps(threadStorageFilePreviewQuery)}
+       activePath={activePath}
++      previewZoom={previewZoom}
++      onPreviewZoomChange={onPreviewZoomChange}
+       copyPath={copyPath}
+       htmlPreviewUrl={buildThreadStorageRawContentUrl(threadId, activePath)}
+       lineRange={lineRange}
+diff --git a/apps/app/src/components/secondary-panel/ThreadStorageFilePreview.tsx b/apps/app/src/components/secondary-panel/ThreadStorageFilePreview.tsx
+index 8f25c551d..c06e76c83 100644
+--- a/apps/app/src/components/secondary-panel/ThreadStorageFilePreview.tsx
++++ b/apps/app/src/components/secondary-panel/ThreadStorageFilePreview.tsx
+@@ -36,6 +36,8 @@ interface SecondaryPanelFilePreviewProps {
+   onOpenInEditor?: (path: string) => void;
+   onRefresh?: () => void;
+   statusLabel?: WorkspaceFilePreviewStatusLabel | null;
++  previewZoom?: number;
++  onPreviewZoomChange?: (scale: number) => void;
+ }
+ 
+ interface BuildTextPreviewFileArgs {
+@@ -178,6 +180,8 @@ export function SecondaryPanelFilePreview({
+   onOpenInEditor,
+   onRefresh,
+   statusLabel = null,
++  previewZoom,
++  onPreviewZoomChange,
+ }: SecondaryPanelFilePreviewProps) {
+   const state = resolveSecondaryPanelFilePreviewState({
+     activePath,
+@@ -200,6 +204,8 @@ export function SecondaryPanelFilePreview({
+       }
+       statusLabel={statusLabel}
+       state={state}
++      previewZoom={previewZoom}
++      onPreviewZoomChange={onPreviewZoomChange}
+     />
+   );
+ }
+diff --git a/apps/app/src/components/ui/image-lightbox.interaction.test.tsx b/apps/app/src/components/ui/image-lightbox.interaction.test.tsx
+index 088d873b3..8a16771a4 100644
+--- a/apps/app/src/components/ui/image-lightbox.interaction.test.tsx
++++ b/apps/app/src/components/ui/image-lightbox.interaction.test.tsx
+@@ -28,27 +28,34 @@ function Preview() {
+ 
+ afterEach(cleanup);
+ 
+-it("dismisses from the image, backdrop, or close control without hiding the app root", () => {
++it("keeps the image open for zoom interaction and dismisses from backdrop or close control", () => {
+   const { container } = render(<Preview />);
+   const trigger = screen.getByRole("button", { name: "Open image" });
+-  for (const target of ["image", "backdrop", "close"]) {
++  for (const target of ["backdrop", "close"]) {
+     trigger.focus();
+     fireEvent.click(trigger);
+     const dialog = screen.getByRole("dialog", { name: "Image preview" });
+     expect(dialog.parentElement).toBe(document.body);
+     expect(container.closest('[inert], [aria-hidden="true"]')).toBeNull();
+     fireEvent.click(
+-      target === "image"
+-        ? screen.getByRole("img", { name: "Image 0" })
+-        : target === "backdrop"
+-          ? dialog
+-          : screen.getByRole("button", { name: "Close image preview" }),
++      target === "backdrop"
++        ? dialog
++        : screen.getByRole("button", { name: "Close image preview" }),
+     );
+     expect(screen.queryByRole("dialog")).toBeNull();
+     expect(document.activeElement).toBe(trigger);
+   }
+ });
+ 
++it("supports local image zoom without treating the image click as a close", () => {
++  render(<Preview />);
++  fireEvent.click(screen.getByRole("button", { name: "Open image" }));
++  fireEvent.click(screen.getByRole("img", { name: "Image 0" }));
++  expect(screen.getByRole("dialog", { name: "Image preview" })).toBeTruthy();
++  fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
++  expect(screen.getByRole("dialog", { name: "Image preview" })).toBeTruthy();
++});
++
+ it("keeps navigation open and restores the trigger after keyboard dismissal", () => {
+   render(<Preview />);
+   const trigger = screen.getByRole("button", { name: "Open image" });
+diff --git a/apps/app/src/components/ui/image-lightbox.tsx b/apps/app/src/components/ui/image-lightbox.tsx
+index ef02f0473..88431ab1d 100644
+--- a/apps/app/src/components/ui/image-lightbox.tsx
++++ b/apps/app/src/components/ui/image-lightbox.tsx
+@@ -12,6 +12,7 @@ import { usePersistentOverlayFocus } from "@bb/shared-ui/responsive-overlay";
+ import { usePortalScopeProps } from "@bb/shared-ui/lib/portal-scope";
+ import { useBrowserDimmingOverlay } from "@/hooks/useBrowserDimmingModal";
+ import { Icon } from "@bb/shared-ui/icon";
++import { PreviewCamera } from "@bb/shared-ui/preview-camera";
+ 
+ type ImageLightboxKeyAction = "close" | "next" | "previous";
+ 
+@@ -193,9 +194,16 @@ export function ImageLightbox({
+       tabIndex={-1}
+       className="fixed inset-0 z-50 flex h-dvh w-full cursor-zoom-out items-center justify-center bg-black/70 p-4 outline-none animate-in fade-in-0 duration-150 motion-reduce:animate-none"
+       onClick={(event) => {
++        const target = event.target;
++        const camera = target instanceof Element
++          ? target.closest('[aria-label="Zoomable preview"]')
++          : null;
++        const interactiveCameraTarget = target instanceof Element
++          ? target.closest("img,button,[data-preview-camera-controls],[aria-hidden='true']")
++          : null;
+         if (
+           event.target === event.currentTarget ||
+-          event.target instanceof HTMLImageElement
++          (camera !== null && interactiveCameraTarget === null)
+         ) {
+           onClose();
+         }
+@@ -204,31 +212,13 @@ export function ImageLightbox({
+       <h2 id={titleId} className="sr-only">
+         {title}
+       </h2>
+-      {imageSrc ? (
+-        <img
+-          src={imageSrc}
+-          alt={imageAlt}
+-          style={IMAGE_TRANSPARENCY_CHECKER_STYLE}
+-          className="max-h-[82dvh] max-w-full object-contain"
+-        />
+-      ) : (
+-        <div
+-          role="status"
+-          aria-label="Loading image"
+-          className="flex size-32 flex-col items-center justify-center gap-2 rounded-xl bg-black/35 text-sm text-white/60 sm:size-48"
+-        >
+-          <Icon name="Loading" className="size-5 animate-spin" />
+-          <span>Loading image…</span>
+-        </div>
+-      )}
+-
+       {hasNavigation ? (
+         <>
+           <Button
+             type="button"
+             variant="ghost"
+             size="icon"
+-            className="absolute left-[max(0.5rem,env(safe-area-inset-left))] top-1/2 size-11 -translate-y-1/2 rounded-full bg-black/45 text-white hover:bg-black/60 hover:text-white disabled:pointer-events-auto"
++            className="absolute left-[max(0.5rem,env(safe-area-inset-left))] top-1/2 z-30 size-11 -translate-y-1/2 rounded-full bg-black/45 text-white hover:bg-black/60 hover:text-white disabled:pointer-events-auto"
+             onClick={onPrevious}
+             disabled={previousDisabled}
+             aria-label="Previous image"
+@@ -239,7 +229,7 @@ export function ImageLightbox({
+             type="button"
+             variant="ghost"
+             size="icon"
+-            className="absolute right-[max(0.5rem,env(safe-area-inset-right))] top-1/2 size-11 -translate-y-1/2 rounded-full bg-black/45 text-white hover:bg-black/60 hover:text-white disabled:pointer-events-auto"
++            className="absolute right-[max(0.5rem,env(safe-area-inset-right))] top-1/2 z-30 size-11 -translate-y-1/2 rounded-full bg-black/45 text-white hover:bg-black/60 hover:text-white disabled:pointer-events-auto"
+             onClick={onNext}
+             disabled={nextDisabled}
+             aria-label="Next image"
+@@ -248,6 +238,26 @@ export function ImageLightbox({
+           </Button>
+         </>
+       ) : null}
++      {imageSrc ? (
++        <PreviewCamera key={imageSrc} className="h-full max-h-[82dvh] w-full" tabIndex={-1} title={imageAlt}>
++          <img
++            src={imageSrc}
++            alt={imageAlt}
++            draggable={false}
++            style={IMAGE_TRANSPARENCY_CHECKER_STYLE}
++            className="max-h-full max-w-full select-none object-contain"
++          />
++        </PreviewCamera>
++      ) : (
++        <div
++          role="status"
++          aria-label="Loading image"
++          className="flex size-32 flex-col items-center justify-center gap-2 rounded-xl bg-black/35 text-sm text-white/60 sm:size-48"
++        >
++          <Icon name="Loading" className="size-5 animate-spin" />
++          <span>Loading image…</span>
++        </div>
++      )}
+ 
+       {navigationStatus ? (
+         <p
+diff --git a/apps/app/src/components/ui/markdown-mermaid-diagram.test.ts b/apps/app/src/components/ui/markdown-mermaid-diagram.test.ts
+index d9754a909..f5f1f8854 100644
+--- a/apps/app/src/components/ui/markdown-mermaid-diagram.test.ts
++++ b/apps/app/src/components/ui/markdown-mermaid-diagram.test.ts
+@@ -1,4 +1,5 @@
+ import { describe, expect, it } from "vitest";
++import { clampPreviewCameraScale, zoomPreviewCamera, pinchPreviewCamera } from "@bb/shared-ui/preview-camera-math";
+ import {
+   clampMermaidScale,
+   getMermaidGestureEventData,
+@@ -129,3 +130,15 @@ describe("pinchMermaidDiagramView", () => {
+     ).toEqual({ offset: { x: -30, y: -5 }, scale: 2 });
+   });
+ });
++
++describe("shared preview camera math", () => {
++  it("keeps the focal point fixed and clamps invalid scales", () => {
++    expect(zoomPreviewCamera({ focalPoint: { x: 80, y: 40 }, maxScale: 8, minScale: 1, nextScale: 2, view: { offset: { x: 0, y: 0 }, scale: 1 } })).toEqual({ offset: { x: -80, y: -40 }, scale: 2 });
++    expect(clampPreviewCameraScale({ maxScale: 8, minScale: 1, scale: Number.NaN })).toBe(1);
++    expect(clampPreviewCameraScale({ maxScale: 8, minScale: 1, scale: 20 })).toBe(8);
++  });
++
++  it("uses the pinch midpoint to zoom and pan", () => {
++    expect(pinchPreviewCamera({ currentCenter: { x: 55, y: 32 }, currentDistance: 200, maxScale: 8, minScale: 1, startCenter: { x: 40, y: 20 }, startDistance: 100, startView: { offset: { x: 0, y: 0 }, scale: 1 } })).toEqual({ offset: { x: -25, y: -8 }, scale: 2 });
++  });
++});
+diff --git a/apps/app/src/components/ui/markdown-mermaid-diagram.tsx b/apps/app/src/components/ui/markdown-mermaid-diagram.tsx
+index c2bef2c59..aec1ce4d3 100644
+--- a/apps/app/src/components/ui/markdown-mermaid-diagram.tsx
++++ b/apps/app/src/components/ui/markdown-mermaid-diagram.tsx
+@@ -18,6 +18,11 @@ import {
+   DialogTitle,
+ } from "@bb/shared-ui/dialog";
+ import { Button } from "@bb/shared-ui/button";
++import {
++  clampPreviewCameraScale,
++  pinchPreviewCamera,
++  zoomPreviewCamera,
++} from "@bb/shared-ui/preview-camera-math";
+ import { CopyButton } from "./copy-button.js";
+ import { Icon } from "@bb/shared-ui/icon";
+ import { loadMermaid } from "./markdown-mermaid-loader.js";
+@@ -332,10 +337,11 @@ function createInitialMermaidDiagramView(): MermaidDiagramView {
+ }
+ 
+ export function clampMermaidScale(scale: number): number {
+-  return Math.min(
+-    MERMAID_DIAGRAM_MAX_SCALE,
+-    Math.max(MERMAID_DIAGRAM_MIN_SCALE, scale),
+-  );
++  return clampPreviewCameraScale({
++    maxScale: MERMAID_DIAGRAM_MAX_SCALE,
++    minScale: MERMAID_DIAGRAM_MIN_SCALE,
++    scale,
++  });
+ }
+ 
+ function getMermaidDiagramPointFromClientPosition({
+@@ -497,44 +503,28 @@ export function zoomMermaidDiagramView({
+   nextScale,
+   view,
+ }: ZoomMermaidDiagramViewArgs): MermaidDiagramView {
+-  const clampedNextScale = clampMermaidScale(nextScale);
+-  if (clampedNextScale === view.scale) {
+-    return view;
+-  }
+-
+-  const scaleRatio = clampedNextScale / view.scale;
+-  return {
+-    offset: {
+-      x: focalPoint.x - scaleRatio * (focalPoint.x - view.offset.x),
+-      y: focalPoint.y - scaleRatio * (focalPoint.y - view.offset.y),
+-    },
+-    scale: clampedNextScale,
+-  };
++  return zoomPreviewCamera({
++    focalPoint,
++    maxScale: MERMAID_DIAGRAM_MAX_SCALE,
++    minScale: MERMAID_DIAGRAM_MIN_SCALE,
++    nextScale,
++    view,
++  });
+ }
+ 
+ export function pinchMermaidDiagramView({
+   pinchState,
+   touchPair,
+ }: PinchMermaidDiagramViewArgs): MermaidDiagramView {
+-  if (pinchState.startDistance <= 0) {
+-    return pinchState.startView;
+-  }
+-
+-  const zoomedView = zoomMermaidDiagramView({
+-    focalPoint: pinchState.startCenter,
+-    nextScale:
+-      pinchState.startView.scale *
+-      (touchPair.distance / pinchState.startDistance),
+-    view: pinchState.startView,
++  return pinchPreviewCamera({
++    currentCenter: touchPair.center,
++    currentDistance: touchPair.distance,
++    maxScale: MERMAID_DIAGRAM_MAX_SCALE,
++    minScale: MERMAID_DIAGRAM_MIN_SCALE,
++    startCenter: pinchState.startCenter,
++    startDistance: pinchState.startDistance,
++    startView: pinchState.startView,
+   });
+-
+-  return {
+-    offset: {
+-      x: zoomedView.offset.x + touchPair.center.x - pinchState.startCenter.x,
+-      y: zoomedView.offset.y + touchPair.center.y - pinchState.startCenter.y,
+-    },
+-    scale: zoomedView.scale,
+-  };
+ }
+ 
+ function createMermaidDialogDiagramStyle({
+diff --git a/apps/app/src/components/ui/preview-camera.test.tsx b/apps/app/src/components/ui/preview-camera.test.tsx
+new file mode 100644
+index 000000000..75e7a9414
+--- /dev/null
++++ b/apps/app/src/components/ui/preview-camera.test.tsx
+@@ -0,0 +1,162 @@
++// @vitest-environment jsdom
++
++import { cleanup, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
++import { afterEach, describe, expect, it, vi } from "vitest";
++import { act } from "react";
++import { PreviewCamera } from "@bb/shared-ui/preview-camera";
++import { PREVIEW_CAMERA_ZOOM_COMMAND_EVENT } from "@bb/server-contract";
++
++afterEach(() => {
++  cleanup();
++  vi.unstubAllGlobals();
++});
++
++function bridgeEvent(frame: HTMLIFrameElement, data: unknown): MessageEvent {
++  return new MessageEvent("message", { data, source: frame.contentWindow });
++}
++
++describe("PreviewCamera", () => {
++  it("routes native zoom only to the focused camera, including frame and editable focus", async () => {
++    const { unmount } = render(<><PreviewCamera src="/preview/report.html" title="native-report" /><PreviewCamera><input aria-label="native-editable" /></PreviewCamera><button>outside</button></>);
++    const dispatch = (detail: string) => {
++      const event = new CustomEvent(PREVIEW_CAMERA_ZOOM_COMMAND_EVENT, { cancelable: true, detail });
++      act(() => window.dispatchEvent(event));
++      return event.defaultPrevented;
++    };
++    screen.getByRole("button", { name: "outside" }).focus();
++    expect(dispatch("in")).toBe(false);
++    screen.getByTitle("native-report").focus();
++    expect(dispatch("in")).toBe(true);
++    await waitFor(() => expect(screen.getAllByLabelText("Zoom level").map((x) => x.textContent)).toEqual(["125%", "100%"]));
++    screen.getByLabelText("native-editable").focus();
++    expect(dispatch("in")).toBe(true);
++    expect(dispatch("unexpected")).toBe(false);
++    expect(dispatch("reset")).toBe(true);
++    await waitFor(() => expect(screen.getAllByLabelText("Zoom level").map((x) => x.textContent)).toEqual(["125%", "100%"]));
++    unmount();
++    expect(dispatch("in")).toBe(false);
++  });
++  it("accepts only the active frame and current token", async () => {
++    render(<PreviewCamera src="/preview/report.html" title="report" />);
++    const frame = screen.getByTitle("report") as HTMLIFrameElement;
++    const token = new URL(frame.src).searchParams.get("__bbPreviewCamera");
++    const message = {
++      type: "wheel",
++      token,
++      version: 1,
++      clientX: 100,
++      clientY: 80,
++      deltaY: -10,
++      deltaMode: 0,
++    };
++    act(() => window.dispatchEvent(bridgeEvent(frame, { ...message, token: "123e4567-e89b-42d3-a456-426614174000" })));
++    expect(screen.getByLabelText("Zoom level").textContent).toBe("100%");
++    act(() => window.dispatchEvent(new MessageEvent("message", { data: message, source: window })));
++    expect(screen.getByLabelText("Zoom level").textContent).toBe("100%");
++    act(() => window.dispatchEvent(bridgeEvent(frame, message)));
++    await waitFor(() => expect(screen.getByLabelText("Zoom level").textContent).toBe("111%"));
++  });
++
++  it("rejects nested, stale, malformed and over-rate bridge messages", async () => {
++    const { rerender } = render(<PreviewCamera src="/preview/one.html" title="report" />);
++    const frame = screen.getByTitle("report") as HTMLIFrameElement;
++    const token = new URL(frame.src).searchParams.get("__bbPreviewCamera");
++    const message = { type: "wheel", token, version: 1, clientX: 100, clientY: 80, deltaY: -100, deltaMode: 0 };
++    const nested = document.createElement("iframe");
++    document.body.append(nested);
++    act(() => window.dispatchEvent(new MessageEvent("message", { data: message, source: nested.contentWindow })));
++    act(() => window.dispatchEvent(bridgeEvent(frame, { ...message, version: 2 })));
++    for (let index = 0; index < 240; index += 1) {
++      act(() => window.dispatchEvent(bridgeEvent(frame, { ...message, deltaY: 0 })));
++    }
++    act(() => window.dispatchEvent(bridgeEvent(frame, message)));
++    expect(screen.getByLabelText("Zoom level").textContent).toBe("100%");
++    const oldSource = frame.contentWindow;
++    rerender(<PreviewCamera src="/preview/two.html" title="report" />);
++    act(() => window.dispatchEvent(new MessageEvent("message", { data: message, source: oldSource })));
++    expect(screen.getByLabelText("Zoom level").textContent).toBe("100%");
++    nested.remove();
++  });
++
++  it("leaves ordinary wheel and editable keyboard input alone", () => {
++    render(
++      <PreviewCamera>
++        <input aria-label="editable" />
++      </PreviewCamera>,
++    );
++    const viewport = screen.getByRole("group", { name: "Zoomable preview" });
++    fireEvent.wheel(viewport, { ctrlKey: false, deltaY: 80 });
++    fireEvent.keyDown(screen.getByLabelText("editable"), { key: "+" });
++    expect(screen.getByLabelText("Zoom level").textContent).toBe("100%");
++  });
++
++  it("commits zoom through the debounce and applies reset controls", async () => {
++    const onScaleCommit = vi.fn();
++    render(<PreviewCamera initialScale={2} onScaleCommit={onScaleCommit} />);
++    fireEvent.click(screen.getByRole("button", { name: "Fit to view" }));
++    await vi.waitFor(() => expect(screen.getByLabelText("Zoom level").textContent).toBe("100%"));
++    await vi.waitFor(() => expect(onScaleCommit).toHaveBeenCalledWith(1));
++  });
++
++  it("flushes a pending zoom commit when the active preview unmounts", () => {
++    const onScaleCommit = vi.fn();
++    const { unmount } = render(<PreviewCamera onScaleCommit={onScaleCommit} />);
++    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
++    unmount();
++    expect(onScaleCommit).toHaveBeenCalledWith(1.25);
++  });
++
++  it("flushes the old preview zoom before a source or tab owner changes", async () => {
++    const firstOwnerCommit = vi.fn();
++    const secondOwnerCommit = vi.fn();
++    const { rerender } = render(
++      <PreviewCamera src="/preview/first.html" initialScale={1} onScaleCommit={firstOwnerCommit} />,
++    );
++    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
++    rerender(
++      <PreviewCamera src="/preview/second.html" initialScale={1} onScaleCommit={secondOwnerCommit} />,
++    );
++    expect(firstOwnerCommit).toHaveBeenCalledWith(1.25);
++    expect(secondOwnerCommit).not.toHaveBeenCalled();
++    await new Promise((resolve) => window.setTimeout(resolve, 300));
++    expect(secondOwnerCommit).not.toHaveBeenCalled();
++  });
++
++  it("leaves Space activation on camera controls and clears panning on blur", () => {
++    render(<PreviewCamera initialScale={2} />);
++    const zoomIn = screen.getByRole("button", { name: "Zoom in" });
++    const spaceDown = createEvent.keyDown(zoomIn, { key: " ", code: "Space" });
++    fireEvent(zoomIn, spaceDown);
++    expect(spaceDown.defaultPrevented).toBe(false);
++    fireEvent.keyDown(screen.getByRole("group"), { key: " ", code: "Space" });
++    expect(document.querySelector('[aria-hidden="true"]')).not.toBeNull();
++    fireEvent.blur(window);
++    expect(document.querySelector('[aria-hidden="true"]')).toBeNull();
++  });
++
++  it("supports touch pinch and pan on image children", async () => {
++    class TestPointerEvent extends MouseEvent {
++      pointerId: number;
++      pointerType: string;
++
++      constructor(type: string, init: PointerEventInit) {
++        super(type, init);
++        this.pointerId = init.pointerId ?? 0;
++        this.pointerType = init.pointerType ?? "mouse";
++      }
++    }
++    vi.stubGlobal("PointerEvent", TestPointerEvent);
++    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => window.setTimeout(() => callback(performance.now()), 0));
++    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((requestId) => window.clearTimeout(requestId));
++    render(<PreviewCamera initialScale={2}><img alt="fixture" src="/image.png" /></PreviewCamera>);
++    const viewport = screen.getByRole("group", { name: "Zoomable preview" });
++    fireEvent.pointerDown(viewport, { pointerId: 1, pointerType: "touch", clientX: 100, clientY: 100 });
++    fireEvent.pointerMove(viewport, { pointerId: 1, pointerType: "touch", clientX: 70, clientY: 100 });
++    fireEvent.pointerUp(viewport, { pointerId: 1, pointerType: "touch", clientX: 70, clientY: 100 });
++    await waitFor(() => expect((viewport.firstElementChild?.firstElementChild as HTMLElement).style.transform).toBe("translate(-30px, 0px) scale(2)"));
++    fireEvent.pointerDown(viewport, { pointerId: 2, pointerType: "touch", clientX: 100, clientY: 100 });
++    fireEvent.pointerDown(viewport, { pointerId: 3, pointerType: "touch", clientX: 200, clientY: 100 });
++    fireEvent.pointerMove(viewport, { pointerId: 3, pointerType: "touch", clientX: 250, clientY: 100 });
++    await waitFor(() => expect(screen.getByLabelText("Zoom level").textContent).toBe("300%"));
++  });
++});
+diff --git a/apps/app/src/lib/file-content-urls.ts b/apps/app/src/lib/file-content-urls.ts
+index e1b3cb43d..7b76c472b 100644
+--- a/apps/app/src/lib/file-content-urls.ts
++++ b/apps/app/src/lib/file-content-urls.ts
+@@ -49,6 +49,7 @@ export function buildThreadStorageRawContentUrl(
+   return toRelativeUrl(
+     apiClient.threads[":id"]["thread-storage"].files[":filePath{.+}"].$url({
+       param: { id: threadId, filePath: encodePathSegments(path) },
++      query: {},
+     }),
+   );
+ }
+@@ -84,6 +85,7 @@ export function buildThreadWorktreeRawContentUrl(
+   return toRelativeUrl(
+     apiClient.threads[":id"].worktree.files[":filePath{.+}"].$url({
+       param: { id: threadId, filePath: encodePathSegments(path) },
++      query: {},
+     }),
+   );
+ }
+diff --git a/apps/app/src/lib/fixed-panel-tabs-sync.test.ts b/apps/app/src/lib/fixed-panel-tabs-sync.test.ts
+index a22248023..1b2b4b1b6 100644
+--- a/apps/app/src/lib/fixed-panel-tabs-sync.test.ts
++++ b/apps/app/src/lib/fixed-panel-tabs-sync.test.ts
+@@ -411,7 +411,10 @@ describe("fixed panel tab server sync", () => {
+         message: "changed",
+         status: 409,
+       }),
+-    );
++    ).mockResolvedValueOnce({
++      revision: 3,
++      tabs: [originalTab, concurrentTab, localTab],
++    });
+     const queryClient = createTestQueryClient();
+     const { result } = renderHook(
+       () => ({
+@@ -443,12 +446,13 @@ describe("fixed panel tab server sync", () => {
+     });
+     await waitFor(() => {
+       expect(apiMocks.getThreadTabs).toHaveBeenCalledTimes(2);
+-      expect(result.current.state.secondary.tabs).toEqual([
+-        originalTab,
+-        concurrentTab,
+-      ]);
++      expect(apiMocks.updateThreadTabs).toHaveBeenCalledTimes(2);
++    });
++    expect(apiMocks.updateThreadTabs).toHaveBeenLastCalledWith({
++      expectedRevision: 2,
++      tabs: [originalTab, concurrentTab, localTab],
++      threadId,
+     });
+-    expect(apiMocks.updateThreadTabs).toHaveBeenCalledTimes(1);
+   });
+ });
+ 
+diff --git a/apps/app/src/views/thread-detail/ThreadDetailView.tsx b/apps/app/src/views/thread-detail/ThreadDetailView.tsx
+index b846b19ed..ab1e0e36c 100644
+--- a/apps/app/src/views/thread-detail/ThreadDetailView.tsx
++++ b/apps/app/src/views/thread-detail/ThreadDetailView.tsx
+@@ -48,7 +48,10 @@ import {
+   usePluginDetailPanelState,
+ } from "@/components/plugin/plugin-detail-navigation";
+ import { useForkThreadFromMessage } from "@/hooks/useForkThreadFromMessage";
+-import { isThreadForkable } from "@bb/client-core";
++import {
++  isThreadForkable,
++  updateSecondaryPanelTabInState,
++} from "@bb/client-core";
+ import { useRequestEnvironmentAction } from "../../hooks/mutations/environment-mutations";
+ import {
+   useMarkThreadRead,
+@@ -2675,6 +2678,20 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
+         return (
+           <LazyWorkspaceFilePreviewTabContent
+             activePath={tab.path}
++            previewZoom={tab.previewZoom}
++            onPreviewZoomChange={(previewZoom) =>
++              updateFixedPanelTabsState((state) => {
++                const current = state.secondary.tabs.find(
++                  (item) => item.id === tab.id,
++                );
++                return current?.kind !== "workspace-file-preview"
++                  ? state
++                  : updateSecondaryPanelTabInState({
++                      state,
++                      tab: { ...current, previewZoom },
++                    });
++              })
++            }
+             copyPath={copyPath}
+             environmentId={tab.environmentId}
+             isPanelOpen={isSecondaryPanelOpen}
+@@ -2700,6 +2717,20 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
+         return (
+           <LazyHostFilePreviewTabContent
+             activePath={tab.path}
++            previewZoom={tab.previewZoom}
++            onPreviewZoomChange={(previewZoom) =>
++              updateFixedPanelTabsState((state) => {
++                const current = state.secondary.tabs.find(
++                  (item) => item.id === tab.id,
++                );
++                return current?.kind !== "host-file-preview"
++                  ? state
++                  : updateSecondaryPanelTabInState({
++                      state,
++                      tab: { ...current, previewZoom },
++                    });
++              })
++            }
+             copyPath={tab.path}
+             environmentId={tab.environmentId}
+             isPanelOpen={isSecondaryPanelOpen}
+@@ -2728,6 +2759,20 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
+         return (
+           <LazyThreadStorageFilePreviewTabContent
+             activePath={tab.path}
++            previewZoom={tab.previewZoom}
++            onPreviewZoomChange={(previewZoom) =>
++              updateFixedPanelTabsState((state) => {
++                const current = state.secondary.tabs.find(
++                  (item) => item.id === tab.id,
++                );
++                return current?.kind !== "thread-storage-file-preview"
++                  ? state
++                  : updateSecondaryPanelTabInState({
++                      state,
++                      tab: { ...current, previewZoom },
++                    });
++              })
++            }
+             copyPath={copyPath}
+             isPanelOpen={isSecondaryPanelOpen}
+             lineRange={tab.lineRange}
+diff --git a/apps/cli/src/__tests__/command-output/thread-organization.test.ts b/apps/cli/src/__tests__/command-output/thread-organization.test.ts
+index fe2773558..d7f758cb4 100644
+--- a/apps/cli/src/__tests__/command-output/thread-organization.test.ts
++++ b/apps/cli/src/__tests__/command-output/thread-organization.test.ts
+@@ -55,6 +55,45 @@ describe("bb thread organization commands", () => {
+     expect(create).toHaveBeenCalledWith({ json: { name: "Review" } });
+   });
+ 
++  it("roundtrips persisted preview zoom through thread tabs commands", async () => {
++    const tabs = [{
++      environmentId: "env_1",
++      id: "workspace-preview",
++      kind: "workspace-file-preview",
++      lineRange: null,
++      path: "reports/summary.html",
++      previewZoom: 2.25,
++      projectId: "prj_1",
++      source: { kind: "working-tree" },
++      statusLabel: null,
++    }];
++    const get = vi.fn(async () => ({ revision: 7, tabs }));
++    const update = vi.fn(async () => ({ revision: 8, tabs }));
++    stubServerApi({
++      "v1.threads.:id.tabs.$get": get,
++      "v1.threads.:id.tabs.$put": update,
++    });
++
++    await runCommand(["thread", "tabs", "show", "thread-1", "--json"], register);
++    await runCommand([
++      "thread",
++      "tabs",
++      "set",
++      "thread-1",
++      "--expected-revision",
++      "7",
++      "--tabs-json",
++      JSON.stringify(tabs),
++      "--json",
++    ], register);
++
++    expect(get).toHaveBeenCalledWith({ param: { id: "thread-1" } });
++    expect(update).toHaveBeenCalledWith({
++      param: { id: "thread-1" },
++      json: { expectedRevision: 7, tabs },
++    });
++  });
++
+   it("creates an explicitly queued message", async () => {
+     const create = vi.fn(async () => ({
+       id: "queued-1",
+diff --git a/apps/desktop/src/main.ts b/apps/desktop/src/main.ts
+index b063c1c28..300123f46 100644
+--- a/apps/desktop/src/main.ts
++++ b/apps/desktop/src/main.ts
+@@ -240,6 +240,7 @@ import {
+   type BbDesktopZoomCommand,
+ } from "@bb/desktop-contract";
+ import { nextZoomFactor } from "./desktop-zoom.js";
++import { createPreviewZoomRouter } from "./preview-zoom-router.js";
+ import {
+   BB_DESKTOP_BROWSER_TARGET_CHANNEL,
+   BB_DESKTOP_BROWSER_GET_CONTROL_CHANNEL,
+@@ -549,6 +550,8 @@ function resolveApplicationWindow(
+   return BrowserWindow.fromWebContents(webContents);
+ }
+ 
++const routePreviewZoom = createPreviewZoomRouter();
++
+ function zoomWebContents(
+   target: WebContents | null | undefined,
+   command: BbDesktopZoomCommand,
+@@ -889,7 +892,12 @@ function refreshApplicationMenu(): void {
+       }
+     },
+     zoomFocusedPage(command) {
+-      zoomWebContents(electronWebContents.getFocusedWebContents(), command);
++      const target = electronWebContents.getFocusedWebContents();
++      void routePreviewZoom(
++        target,
++        command,
++        target !== null && BrowserWindow.fromWebContents(target)?.webContents === target,
++      );
+     },
+     reloadWindow(browserWindow, ignoreCache) {
+       if (!(browserWindow instanceof BrowserWindow)) {
+diff --git a/apps/desktop/src/preview-zoom-router.ts b/apps/desktop/src/preview-zoom-router.ts
+new file mode 100644
+index 000000000..c9b57c464
+--- /dev/null
++++ b/apps/desktop/src/preview-zoom-router.ts
+@@ -0,0 +1,35 @@
++import { PREVIEW_CAMERA_ZOOM_COMMAND_EVENT } from "@bb/server-contract";
++import type { BbDesktopZoomCommand } from "@bb/desktop-contract";
++import { nextZoomFactor } from "./desktop-zoom.js";
++
++interface ZoomTarget {
++  isDestroyed(): boolean;
++  executeJavaScript(code: string): Promise<unknown>;
++  getZoomFactor(): number;
++  setZoomFactor(factor: number): void;
++}
++
++export function createPreviewZoomRouter() {
++  const pending = new WeakMap<ZoomTarget, Promise<void>>();
++  return (
++    target: ZoomTarget | null | undefined,
++    command: BbDesktopZoomCommand,
++    isApplicationRenderer: boolean,
++  ): Promise<void> => {
++    if (!target || target.isDestroyed()) return Promise.resolve();
++    const run = async () => {
++      if (target.isDestroyed()) return;
++      let handled = false;
++      if (isApplicationRenderer) {
++        const code = `(() => { const event = new CustomEvent(${JSON.stringify(PREVIEW_CAMERA_ZOOM_COMMAND_EVENT)}, { cancelable: true, detail: ${JSON.stringify(command)} }); window.dispatchEvent(event); return event.defaultPrevented; })()`;
++        handled = (await target.executeJavaScript(code).catch(() => false)) === true;
++      }
++      if (!handled && !target.isDestroyed()) {
++        target.setZoomFactor(nextZoomFactor(target.getZoomFactor(), command));
++      }
++    };
++    const next = (pending.get(target) ?? Promise.resolve()).then(run);
++    pending.set(target, next);
++    return next;
++  };
++}
+diff --git a/apps/desktop/test/preview-zoom-router.test.ts b/apps/desktop/test/preview-zoom-router.test.ts
+new file mode 100644
+index 000000000..3fda4e96a
+--- /dev/null
++++ b/apps/desktop/test/preview-zoom-router.test.ts
+@@ -0,0 +1,52 @@
++import { describe, expect, it, vi } from "vitest";
++import { createPreviewZoomRouter } from "../src/preview-zoom-router.js";
++
++function makeTarget(handled: boolean) {
++  let factor = 1;
++  return {
++    executeJavaScript: vi.fn(async () => handled),
++    isDestroyed: vi.fn(() => false),
++    getZoomFactor: () => factor,
++    setZoomFactor: vi.fn((value: number) => { factor = value; }),
++  };
++}
++
++describe("preview zoom routing", () => {
++  it("keeps page zoom unchanged when the focused camera accepts the command", async () => {
++    const target = makeTarget(true);
++    await createPreviewZoomRouter()(target, "in", true);
++    expect(target.getZoomFactor()).toBe(1);
++    expect(target.setZoomFactor).not.toHaveBeenCalled();
++  });
++
++  it("uses global zoom outside a preview and never executes code in a BrowserView", async () => {
++    const route = createPreviewZoomRouter();
++    const application = makeTarget(false);
++    await route(application, "in", true);
++    expect(application.getZoomFactor()).toBe(1.1);
++    const browser = makeTarget(true);
++    await route(browser, "out", false);
++    expect(browser.getZoomFactor()).toBe(0.9);
++    expect(browser.executeJavaScript).not.toHaveBeenCalled();
++  });
++
++  it("serializes repeated commands and handles navigation or destruction", async () => {
++    const target = makeTarget(false);
++    let finish: ((value: boolean) => void) | undefined;
++    target.executeJavaScript.mockImplementationOnce(() => new Promise<boolean>((resolve) => { finish = resolve; }));
++    const route = createPreviewZoomRouter();
++    const first = route(target, "in", true);
++    const second = route(target, "reset", true);
++    await vi.waitFor(() => expect(finish).toBeDefined());
++    expect(target.executeJavaScript).toHaveBeenCalledTimes(1);
++    finish!(false);
++    await Promise.all([first, second]);
++    expect(target.getZoomFactor()).toBe(1);
++    target.executeJavaScript.mockRejectedValueOnce(new Error("navigation"));
++    await route(target, "out", true);
++    expect(target.getZoomFactor()).toBe(0.9);
++    target.isDestroyed.mockReturnValue(true);
++    await route(target, "in", true);
++    expect(target.getZoomFactor()).toBe(0.9);
++  });
++});
+diff --git a/apps/server/src/routes/files.ts b/apps/server/src/routes/files.ts
+index 4c781f612..b7f2ac29f 100644
+--- a/apps/server/src/routes/files.ts
++++ b/apps/server/src/routes/files.ts
+@@ -20,6 +20,7 @@ import {
+   createDaemonFileContentResponse,
+   type DaemonFileReadResult,
+   requireDaemonFileContentResult,
++  readBoundedDaemonFileContent,
+   remapDaemonFileRouteError,
+   serveDaemonFileContent,
+ } from "../services/hosts/daemon-file-response.js";
+@@ -28,6 +29,10 @@ import {
+   requirePrimaryHostId,
+ } from "../services/hosts/primary-host.js";
+ import { requirePublicThreadEnvironment } from "../services/lib/entity-lookup.js";
++import {
++  getHtmlPreviewCameraToken,
++  injectHtmlPreviewCameraBridge,
++} from "../services/hosts/html-preview-camera-bridge.js";
+ import {
+   DEFAULT_PATH_LIST_EXCLUDE_NAMES,
+   WORKSPACE_PATH_LIST_INCLUDE_HIDDEN,
+@@ -117,36 +122,44 @@ function assertRawFilesystemHtmlPreviewResult(
+   }
+ }
+ 
+-function createRawFilesystemHtmlPreviewResponse(
+-  result: DaemonFileReadResult,
+-): Response {
+-  assertRawFilesystemHtmlPreviewResult(result);
+-  return createDaemonFileContentResponse(result, {
+-    headers: {
+-      "cache-control": NO_STORE_CACHE_CONTROL,
+-      "content-security-policy": HTML_PREVIEW_CSP,
+-      "content-type": HTML_PREVIEW_CONTENT_TYPE,
+-      "x-content-type-options": NOSNIFF_CONTENT_TYPE_OPTIONS,
+-    },
+-  });
+-}
+-
+ async function serveRawFilesystemHtmlFile(
+   deps: LoggedWorkSessionDeps,
+   threadId: string,
+   rawPath: string,
++  token: string | undefined,
++  targetOrigin: string,
+ ): Promise<Response> {
+   const filePath = parseRawFilesystemPath(rawPath);
+   assertHtmlPreviewPath(filePath);
+   const { environment } = requirePublicThreadEnvironment(deps.db, threadId);
+-  return serveDaemonFileContent(
+-    deps,
+-    {
+-      hostId: environment.hostId,
+-      path: filePath,
++  const result = await readBoundedDaemonFileContent(deps, {
++    hostId: environment.hostId,
++    path: filePath,
++    rootPath: path.dirname(filePath),
++    maxBytes: HTML_PREVIEW_MAX_BYTES,
++  });
++  assertRawFilesystemHtmlPreviewResult(result);
++  const bridged =
++    token === undefined
++      ? null
++      : injectHtmlPreviewCameraBridge(result.content, token, targetOrigin);
++  const responseResult =
++    bridged === null
++      ? result
++      : {
++          ...result,
++          content: bridged.content,
++          sizeBytes: bridged.sizeBytes,
++          sha256: bridged.sha256,
++        };
++  return createDaemonFileContentResponse(responseResult, {
++    headers: {
++      "cache-control": NO_STORE_CACHE_CONTROL,
++      "content-security-policy": HTML_PREVIEW_CSP,
++      "content-type": HTML_PREVIEW_CONTENT_TYPE,
++      "x-content-type-options": NOSNIFF_CONTENT_TYPE_OPTIONS,
+     },
+-    createRawFilesystemHtmlPreviewResponse,
+-  );
++  });
+ }
+ 
+ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
+@@ -156,7 +169,7 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
+   const routes = publicApiRoutes.threads;
+ 
+   get(routes.rawFile, async (context, query) =>
+-    serveRawFilesystemHtmlFile(deps, context.req.param("id"), query.path),
++    serveRawFilesystemHtmlFile(deps, context.req.param("id"), query.path, query.__bbPreviewCamera, new URL(context.req.url).origin),
+   );
+ 
+   const fileRoutes = publicApiRoutes.files;
+@@ -403,6 +416,42 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
+       throw new ApiError(400, "invalid_path", "Invalid preview path", false);
+     }
+     const isHtmlPath = isHtmlMimeType(mimeTypes.lookup(rawPath) || null);
++    const cameraToken = getHtmlPreviewCameraToken(new URL(context.req.url));
++    if (isHtmlPath) {
++      const result = await readBoundedDaemonFileContent(deps, {
++        hostId: lease.hostId,
++        path: joinHostPath(lease.rootPath, segments),
++        rootPath: lease.rootPath,
++        maxBytes: HTML_PREVIEW_MAX_BYTES,
++      });
++      assertRawFilesystemHtmlPreviewResult(result);
++      const bridged =
++        cameraToken === undefined
++          ? null
++          : injectHtmlPreviewCameraBridge(
++              result.content,
++              cameraToken,
++              new URL(context.req.url).origin,
++            );
++      const responseResult =
++        bridged === null
++          ? result
++          : {
++              ...result,
++              content: bridged.content,
++              contentEncoding: "utf8" as const,
++              sizeBytes: bridged.sizeBytes,
++              sha256: bridged.sha256,
++            };
++      return createDaemonFileContentResponse(responseResult, {
++        headers: {
++          "cache-control": NO_STORE_CACHE_CONTROL,
++          "content-security-policy": HTML_PREVIEW_CSP,
++          "content-type": HTML_PREVIEW_CONTENT_TYPE,
++          "x-content-type-options": NOSNIFF_CONTENT_TYPE_OPTIONS,
++        },
++      });
++    }
+     return serveDaemonFileContent(
+       deps,
+       {
+@@ -417,10 +466,28 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
+         const headers = new Headers({ "x-content-type-options": "nosniff" });
+         const isHtml = isHtmlMimeType(result.mimeType);
+         if (isHtml) {
+-          assertRawFilesystemHtmlPreviewResult(result);
++          const availableResult = requireDaemonFileContentResult(result);
++          assertRawFilesystemHtmlPreviewResult(availableResult);
+           headers.set("cache-control", "no-store");
+           headers.set("content-security-policy", HTML_PREVIEW_CSP);
+           headers.set("content-type", HTML_PREVIEW_CONTENT_TYPE);
++          if (cameraToken !== undefined) {
++            const bridged = injectHtmlPreviewCameraBridge(
++              availableResult.content,
++              cameraToken,
++              new URL(context.req.url).origin,
++            );
++            return createDaemonFileContentResponse(
++              {
++                ...availableResult,
++                content: bridged.content,
++                contentEncoding: "utf8",
++                sizeBytes: bridged.sizeBytes,
++                sha256: bridged.sha256,
++              },
++              { headers },
++            );
++          }
+         }
+         return createDaemonFileContentResponse(result, {
+           headers,
+diff --git a/apps/server/src/routes/threads/data.ts b/apps/server/src/routes/threads/data.ts
+index 15442e1bf..cce933f31 100644
+--- a/apps/server/src/routes/threads/data.ts
++++ b/apps/server/src/routes/threads/data.ts
+@@ -48,9 +48,11 @@ import {
+ import { callHostRetryableOnlineRpc } from "../../services/hosts/online-rpc.js";
+ import {
+   createDaemonFileContentResponse,
++  requireDaemonFileContentResult,
+   type DaemonFileReadResult,
+   serveDaemonFileContent,
+ } from "../../services/hosts/daemon-file-response.js";
++import { injectHtmlPreviewCameraBridge } from "../../services/hosts/html-preview-camera-bridge.js";
+ import { requireThreadStoragePath } from "../../services/threads/thread-storage.js";
+ import { toThreadQueuedMessage } from "../../services/threads/thread-queued-messages.js";
+ import {
+@@ -142,6 +144,7 @@ const RAW_FILE_NO_STORE_CACHE_CONTROL = "no-store";
+ const RAW_FILE_HTML_CONTENT_TYPE = "text/html; charset=utf-8";
+ const RAW_FILE_CONTENT_TYPE_OPTIONS = "nosniff";
+ const HTML_PREVIEW_MAX_BYTES = 5 * 1024 * 1024;
++const HTML_PREVIEW_BRIDGE_MAX_BYTES = 4 * 1024;
+ const GENERIC_HTML_PREVIEW_CSP = "sandbox allow-scripts";
+ 
+ function parseThreadEventTypes(
+@@ -256,12 +259,19 @@ function createRawFilePreviewResponse(
+   result: DaemonFileReadResult,
+   relativePath: string,
+   ifNoneMatch: string | undefined,
++  bridged = false,
+ ): Response {
+-  assertHtmlPreviewSize(relativePath, result.sizeBytes);
++  const isHtml = isHtmlPreviewPath(relativePath);
++  if (isHtml && !bridged) assertHtmlPreviewSize(relativePath, result.sizeBytes);
++  if (
++    isHtml &&
++    result.sizeBytes > HTML_PREVIEW_MAX_BYTES + HTML_PREVIEW_BRIDGE_MAX_BYTES
++  ) {
++    throw new ApiError(413, "file_too_large", "HTML preview exceeds the response limit", false);
++  }
+   const headers = new Headers({
+     "x-content-type-options": RAW_FILE_CONTENT_TYPE_OPTIONS,
+   });
+-  const isHtml = isHtmlPreviewPath(relativePath);
+   if (isHtml) {
+     headers.set("cache-control", RAW_FILE_NO_STORE_CACHE_CONTROL);
+     headers.set("content-security-policy", GENERIC_HTML_PREVIEW_CSP);
+@@ -278,9 +288,20 @@ async function serveThreadStorageRawFile(
+   threadId: string,
+   rawPath: string,
+   request: Request,
++  cameraToken: string | undefined,
++  targetOrigin: string,
+ ): Promise<Response> {
+   const filePath = parseSafeRelativeRoutePath(rawPath);
+   const target = await requireThreadStorageTarget(deps, { threadId });
++  if (cameraToken) {
++    return serveDaemonFileContent(deps, { hostId: target.hostId, path: path.join(target.storagePath, filePath.relativePath), rootPath: target.storagePath }, (result) => {
++      const availableResult = requireDaemonFileContentResult(result);
++      assertHtmlPreviewSize(filePath.relativePath, availableResult.sizeBytes);
++      if (availableResult.contentEncoding !== "utf8" || !availableResult.mimeType?.toLowerCase().startsWith("text/html")) throw new ApiError(415, "unsupported_media_type", "Preview bridge requires UTF-8 HTML", false);
++      const bridged = injectHtmlPreviewCameraBridge(availableResult.content, cameraToken, targetOrigin);
++      return createRawFilePreviewResponse({ ...availableResult, content: bridged.content, sizeBytes: bridged.sizeBytes, sha256: bridged.sha256 }, filePath.relativePath, undefined, true);
++    });
++  }
+   return serveDaemonFileStream(
+     deps,
+     {
+@@ -309,6 +330,8 @@ async function serveThreadWorktreeRawFile(
+   threadId: string,
+   rawPath: string,
+   ifNoneMatch: string | undefined,
++  cameraToken: string | undefined,
++  targetOrigin: string,
+ ): Promise<Response> {
+   const filePath = parseSafeRelativeRoutePath(rawPath);
+   const thread = requirePublicThread(deps.db, threadId);
+@@ -325,8 +348,13 @@ async function serveThreadWorktreeRawFile(
+       path: path.join(environment.path, filePath.relativePath),
+       rootPath: environment.path,
+     },
+-    (result) =>
+-      createRawFilePreviewResponse(result, filePath.relativePath, ifNoneMatch),
++    (result) => {
++      if (!cameraToken) return createRawFilePreviewResponse(result, filePath.relativePath, ifNoneMatch);
++      const availableResult = requireDaemonFileContentResult(result);
++      if (availableResult.contentEncoding !== "utf8" || !availableResult.mimeType?.toLowerCase().startsWith("text/html")) throw new ApiError(415, "unsupported_media_type", "Preview bridge requires UTF-8 HTML", false);
++      const bridged = injectHtmlPreviewCameraBridge(availableResult.content, cameraToken, targetOrigin);
++      return createRawFilePreviewResponse({ ...availableResult, content: bridged.content, sizeBytes: bridged.sizeBytes, sha256: bridged.sha256 }, filePath.relativePath, undefined, true);
++    },
+   );
+ }
+ 
+@@ -679,12 +707,14 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
+     );
+   });
+ 
+-  get(routes.worktreeFile, async (context) =>
++  get(routes.worktreeFile, async (context, query) =>
+     serveThreadWorktreeRawFile(
+       deps,
+       context.req.param("id"),
+       context.req.param("filePath"),
+       context.req.header("if-none-match"),
++      query.__bbPreviewCamera,
++      new URL(context.req.url).origin,
+     ),
+   );
+ 
+@@ -735,12 +765,14 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
+     });
+   });
+ 
+-  get(routes.storageFile, async (context) =>
++  get(routes.storageFile, async (context, query) =>
+     serveThreadStorageRawFile(
+       deps,
+       context.req.param("id"),
+       context.req.param("filePath"),
+       context.req.raw,
++      query.__bbPreviewCamera,
++      new URL(context.req.url).origin,
+     ),
+   );
+ 
+@@ -793,6 +825,14 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
+       threadId: context.req.param("id"),
+     });
+ 
++    if (query.__bbPreviewCamera) {
++      return serveDaemonFileContent(deps, { hostId: target.hostId, path: path.join(target.storagePath, query.path), rootPath: target.storagePath }, (result) => {
++        const availableResult = requireDaemonFileContentResult(result);
++        if (availableResult.contentEncoding !== "utf8" || !availableResult.mimeType?.toLowerCase().startsWith("text/html")) throw new ApiError(415, "unsupported_media_type", "Preview bridge requires UTF-8 HTML", false);
++        const bridged = injectHtmlPreviewCameraBridge(availableResult.content, query.__bbPreviewCamera!, new URL(context.req.url).origin);
++        return createDaemonFileContentResponse({ ...availableResult, content: bridged.content, sizeBytes: bridged.sizeBytes, sha256: bridged.sha256 }, { headers: { "cache-control": "no-store", "content-security-policy": "sandbox allow-scripts" } });
++      });
++    }
+     return serveDaemonFileContent(
+       deps,
+       {
+@@ -817,6 +857,14 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
+     }
+     const environment = requireEnvironment(deps.db, thread.environmentId);
+ 
++    if (query.__bbPreviewCamera) {
++      return serveDaemonFileContent(deps, { hostId: environment.hostId, path: query.path }, (result) => {
++        const availableResult = requireDaemonFileContentResult(result);
++        if (availableResult.contentEncoding !== "utf8" || !availableResult.mimeType?.toLowerCase().startsWith("text/html")) throw new ApiError(415, "unsupported_media_type", "Preview bridge requires UTF-8 HTML", false);
++        const bridged = injectHtmlPreviewCameraBridge(availableResult.content, query.__bbPreviewCamera!, new URL(context.req.url).origin);
++        return createDaemonFileContentResponse({ ...availableResult, content: bridged.content, sizeBytes: bridged.sizeBytes, sha256: bridged.sha256 }, { headers: { "cache-control": "no-store", "content-security-policy": "sandbox allow-scripts" } });
++      });
++    }
+     return serveDaemonFileContent(
+       deps,
+       {
+diff --git a/apps/server/src/services/hosts/daemon-file-response.ts b/apps/server/src/services/hosts/daemon-file-response.ts
+index ac89db3a5..f475fae83 100644
+--- a/apps/server/src/services/hosts/daemon-file-response.ts
++++ b/apps/server/src/services/hosts/daemon-file-response.ts
+@@ -1,8 +1,10 @@
+ import { Buffer } from "node:buffer";
++import { createHash } from "node:crypto";
+ import type {
+   HostDaemonOnlineRpcResultByType,
+   HostReadFileIfNoneMatch,
+ } from "@bb/host-daemon-contract";
++import { HOST_FILE_CHUNK_MAX_BYTES } from "@bb/host-daemon-contract";
+ import { ApiError } from "../../errors.js";
+ import { COMMAND_TIMEOUT_MS } from "../../constants.js";
+ import type { LoggedWorkSessionDeps } from "../../types.js";
+@@ -51,6 +53,58 @@ export async function serveDaemonFileContent(
+   }
+ }
+ 
++export async function readBoundedDaemonFileContent(
++  deps: LoggedWorkSessionDeps,
++  target: { hostId: string; path: string; rootPath: string; maxBytes: number },
++): Promise<Exclude<HostReadFileResult, { notModified: true }>> {
++  const read = (offset: number, length: number, revision: string | null) =>
++    callHostRetryableOnlineRpc(deps, {
++      hostId: target.hostId,
++      timeoutMs: COMMAND_TIMEOUT_MS,
++      command: {
++        type: "host.read_file_chunk",
++        path: target.path,
++        rootPath: target.rootPath,
++        offset,
++        length,
++        revision,
++      },
++    });
++  try {
++    const metadata = await read(0, 0, null);
++    if (metadata.sizeBytes > target.maxBytes) {
++      throw new ApiError(413, "file_too_large", "File exceeds the preview limit", false);
++    }
++    const chunks: Buffer[] = [];
++    for (let offset = 0; offset < metadata.sizeBytes; offset += HOST_FILE_CHUNK_MAX_BYTES) {
++      const length = Math.min(HOST_FILE_CHUNK_MAX_BYTES, metadata.sizeBytes - offset);
++      const chunk = await read(offset, length, metadata.revision);
++      const bytes = Buffer.from(chunk.content, "base64");
++      if (
++        chunk.revision !== metadata.revision ||
++        chunk.sizeBytes !== metadata.sizeBytes ||
++        chunk.offset !== offset ||
++        bytes.byteLength !== length
++      ) {
++        throw new ApiError(409, "file_changed", "File changed or returned an incomplete chunk", true);
++      }
++      chunks.push(bytes);
++    }
++    const content = Buffer.concat(chunks, metadata.sizeBytes).toString("utf8");
++    return {
++      path: metadata.path,
++      content,
++      contentEncoding: "utf8",
++      ...(metadata.mimeType !== null ? { mimeType: metadata.mimeType } : {}),
++      modifiedAtMs: metadata.modifiedAtMs,
++      sha256: createHash("sha256").update(content).digest("hex"),
++      sizeBytes: metadata.sizeBytes,
++    };
++  } catch (error) {
++    return remapDaemonFileRouteError(error);
++  }
++}
++
+ function parseDaemonIfNoneMatch(
+   ifNoneMatch: string | undefined,
+ ): HostReadFileIfNoneMatch | undefined {
+diff --git a/apps/server/src/services/hosts/html-preview-camera-bridge.ts b/apps/server/src/services/hosts/html-preview-camera-bridge.ts
+new file mode 100644
+index 000000000..f70a4ea8c
+--- /dev/null
++++ b/apps/server/src/services/hosts/html-preview-camera-bridge.ts
+@@ -0,0 +1,67 @@
++import { createHash } from "node:crypto";
++import { ApiError } from "../../errors.js";
++import { PREVIEW_CAMERA_BRIDGE_QUERY } from "@bb/server-contract";
++
++const HTML_PREVIEW_MAX_BYTES = 5 * 1024 * 1024;
++const BRIDGE_MAX_BYTES = 4 * 1024;
++
++function findTagEnd(html: string, start: number): number {
++  let quote = "";
++  for (let index = start; index < html.length; index += 1) {
++    const character = html[index];
++    if (quote !== "") {
++      if (character === quote) quote = "";
++    } else if (character === "\"" || character === "'") {
++      quote = character;
++    } else if (character === ">") {
++      return index + 1;
++    }
++  }
++  return html.length;
++}
++
++function findSafePrologInsertion(html: string): number {
++  let cursor = html.charCodeAt(0) === 0xfeff ? 1 : 0;
++  while (cursor < html.length) {
++    while (/\s/u.test(html[cursor] ?? "")) cursor += 1;
++    if (html.startsWith("<!--", cursor)) {
++      const commentEnd = html.indexOf("-->", cursor + 4);
++      if (commentEnd < 0) return html.charCodeAt(0) === 0xfeff ? 1 : 0;
++      cursor = commentEnd + 3;
++      continue;
++    }
++    if (/^<!doctype\b/iu.test(html.slice(cursor, cursor + 16))) {
++      return findTagEnd(html, cursor + 2);
++    }
++    return html.charCodeAt(0) === 0xfeff ? 1 : 0;
++  }
++  return html.charCodeAt(0) === 0xfeff ? 1 : 0;
++}
++
++export function injectHtmlPreviewCameraBridge(
++  html: string,
++  token: string,
++  targetOrigin: string,
++): { content: string; sha256: string; sizeBytes: number } {
++  const sourceBytes = Buffer.byteLength(html, "utf8");
++  if (sourceBytes > HTML_PREVIEW_MAX_BYTES) {
++    throw new ApiError(413, "file_too_large", "HTML preview exceeds the 5 MB limit", false);
++  }
++  const origin = new URL(targetOrigin).origin;
++  const script = `<script>(()=>{const t=${JSON.stringify(token)},o=${JSON.stringify(origin)},v=1,s=(type,d={})=>parent.postMessage({type,token:t,version:v,...d},o),e=n=>{const x=n instanceof Element?n:null;return !!x&&(x.isContentEditable||!!x.closest('input,textarea,select,[role=textbox]'))},p=ev=>{const a=ev.touches[0],b=ev.touches[1];return a&&b?{x:(a.clientX+b.clientX)/2,y:(a.clientY+b.clientY)/2}:null};let wheel=0,wheelPoint=null,wheelFrame=0;addEventListener('wheel',ev=>{if(!ev.ctrlKey||e(ev.target))return;ev.preventDefault();wheel+=(ev.deltaMode===1?ev.deltaY*16:ev.deltaMode===2?ev.deltaY*800:ev.deltaY);wheelPoint={clientX:ev.clientX,clientY:ev.clientY};if(!wheelFrame)wheelFrame=requestAnimationFrame(()=>{wheelFrame=0;const point=wheelPoint,deltaY=wheel;wheel=0;wheelPoint=null;if(point)s('wheel',{...point,deltaY,deltaMode:0})})},{passive:false,capture:true});let start=0,touchActive=false;addEventListener('touchstart',ev=>{if(ev.touches.length===2){touchActive=true;const c=p(ev),a=ev.touches[0],b=ev.touches[1];start=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);s('pinch-start',{center:c,distance:start})}},{passive:true});addEventListener('touchmove',ev=>{if(ev.touches.length!==2||!start)return;ev.preventDefault();const c=p(ev),a=ev.touches[0],b=ev.touches[1];s('pinch-change',{center:c,distance:Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY)})},{passive:false});const end=()=>{if(start){start=0;touchActive=false;s('pinch-end')}};addEventListener('touchend',end);addEventListener('touchcancel',end);let gesture=1;addEventListener('gesturestart',ev=>{ev.preventDefault();if(touchActive)return;gesture=1;s('pinch-start',{center:{x:ev.clientX,y:ev.clientY},distance:1})},{passive:false});addEventListener('gesturechange',ev=>{ev.preventDefault();if(touchActive)return;const ratio=ev.scale/gesture;gesture=ev.scale;s('gesture-change',{center:{x:ev.clientX,y:ev.clientY},ratio})},{passive:false});addEventListener('gestureend',ev=>{if(touchActive){ev.preventDefault();return}s('pinch-end')});let space=false;addEventListener('keydown',ev=>{const editable=e(ev.target);if(ev.code==='Space'&&!editable){if(!space){space=true;s('space',{pressed:true,editable:false})}}if(!editable&&!ev.repeat&&['+','=','-','_','0'].includes(ev.key)){ev.preventDefault();s('key',{key:ev.key,editable:false,metaKey:ev.metaKey,ctrlKey:ev.ctrlKey,shiftKey:ev.shiftKey})}},true);const clear=()=>{if(space){space=false;s('space',{pressed:false,editable:false})}};addEventListener('keyup',ev=>{if(ev.code==='Space')clear()},true);addEventListener('blur',clear);document.addEventListener('visibilitychange',()=>{if(document.hidden)clear()})})()</script>`;
++  if (Buffer.byteLength(script, "utf8") > BRIDGE_MAX_BYTES) throw new Error("Preview bridge exceeds its fixed size limit");
++  const insertion = findSafePrologInsertion(html);
++  const content = `${html.slice(0, insertion)}<head>${script}</head>${html.slice(insertion)}`;
++  const sizeBytes = Buffer.byteLength(content, "utf8");
++  if (sizeBytes > HTML_PREVIEW_MAX_BYTES + BRIDGE_MAX_BYTES) {
++    throw new ApiError(413, "file_too_large", "HTML preview exceeds the 5 MB limit", false);
++  }
++  return { content, sizeBytes, sha256: createHash("sha256").update(content).digest("hex") };
++}
++
++export function getHtmlPreviewCameraToken(url: URL): string | undefined {
++  const token = url.searchParams.get(PREVIEW_CAMERA_BRIDGE_QUERY);
++  return token && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(token)
++    ? token
++    : undefined;
++}
+diff --git a/apps/server/test/files/host-file-routes.test.ts b/apps/server/test/files/host-file-routes.test.ts
+index e12850e03..2dfea87b3 100644
+--- a/apps/server/test/files/host-file-routes.test.ts
++++ b/apps/server/test/files/host-file-routes.test.ts
+@@ -1,4 +1,5 @@
+ import type { HostDaemonOnlineRpcRequestMessage } from "@bb/host-daemon-contract";
++import { createHash } from "node:crypto";
+ import { describe, expect, it } from "vitest";
+ import { registerHostRpcResponder } from "../helpers/host-rpc.js";
+ import { readJson } from "../helpers/json.js";
+@@ -91,11 +92,71 @@ describe("host file routes", () => {
+       const { host, session } = seedHostSession(harness.deps);
+       seedPrimaryHost(harness.deps, host.id);
+       const commands: unknown[] = [];
++      const boundaryContent = Buffer.alloc(5 * 1024 * 1024, 0x61);
+       registerHostRpcResponder(harness, {
+         hostId: host.id,
+         sessionId: session.id,
+         handle: (request) => {
+           commands.push(request.command);
++          if (
++            request.command.type === "host.read_file_chunk" &&
++            request.command.path.endsWith("boundary.html")
++          ) {
++            return {
++              ok: true,
++              result: {
++                path: request.command.path,
++                sizeBytes: boundaryContent.byteLength,
++                modifiedAtMs: 1234,
++                mimeType: "text/html",
++                revision: "b".repeat(64),
++                offset: request.command.offset,
++                content: boundaryContent
++                  .subarray(request.command.offset, request.command.offset + request.command.length)
++                  .toString("base64"),
++              },
++            };
++          }
++          if (
++            request.command.type === "host.read_file_chunk" &&
++            request.command.path.endsWith("large.html")
++          ) {
++            return {
++              ok: true,
++              result: {
++                path: request.command.path,
++                sizeBytes: 5 * 1024 * 1024 + 1,
++                modifiedAtMs: 1234,
++                mimeType: "text/html",
++                revision: "f".repeat(64),
++                offset: request.command.offset,
++                content: "",
++              },
++            };
++          }
++          if (
++            request.command.type === "host.read_file_chunk" &&
++            request.command.path.endsWith("report.html")
++          ) {
++            const content = Buffer.from("<!doctype html><h1>Report</h1>");
++            return {
++              ok: true,
++              result: {
++                path: "/notes/report.html",
++                sizeBytes: content.byteLength,
++                modifiedAtMs: 1234,
++                mimeType: "text/html",
++                revision: "e".repeat(64),
++                offset: request.command.offset,
++                content: content
++                  .subarray(
++                    request.command.offset,
++                    request.command.offset + request.command.length,
++                  )
++                  .toString("base64"),
++              },
++            };
++          }
+           if (
+             request.command.type === "host.read_file" &&
+             request.command.path.endsWith(".png")
+@@ -143,6 +204,20 @@ describe("host file routes", () => {
+         throw new Error("Preview response missing baseUrl");
+       }
+ 
++      const oversized = await harness.app.request(`${lease.baseUrl}/large.html`);
++      expect(oversized.status).toBe(413);
++      expect(commands.slice(-1)).toEqual([
++        {
++          type: "host.read_file_chunk",
++          path: "/notes/large.html",
++          rootPath: "/notes",
++          offset: 0,
++          length: 0,
++          revision: null,
++        },
++      ]);
++      commands.length = 0;
++
+       const image = await harness.app.request(`${lease.baseUrl}/chart.png`, {
+         headers: { "if-none-match": `"${"d".repeat(64)}"` },
+       });
+@@ -161,7 +236,13 @@ describe("host file routes", () => {
+         "sandbox allow-scripts",
+       );
+       expect(content.headers.get("x-content-type-options")).toBe("nosniff");
+-      await expect(content.text()).resolves.toContain("<h1>Report</h1>");
++      await expect(content.text()).resolves.toBe("<!doctype html><h1>Report</h1>");
++      const bridged = await harness.app.request(
++        `${lease.baseUrl}/report.html?__bbPreviewCamera=123e4567-e89b-42d3-a456-426614174000`,
++      );
++      expect(bridged.status).toBe(200);
++      expect(bridged.headers.get("content-security-policy")).toBe("sandbox allow-scripts");
++      await expect(bridged.text()).resolves.toContain("123e4567-e89b-42d3-a456-426614174000");
+       expect(commands).toEqual([
+         {
+           type: "host.read_file",
+@@ -173,11 +254,50 @@ describe("host file routes", () => {
+           },
+         },
+         {
+-          type: "host.read_file",
++          type: "host.read_file_chunk",
++          path: "/notes/report.html",
++          rootPath: "/notes",
++          offset: 0,
++          length: 0,
++          revision: null,
++        },
++        {
++          type: "host.read_file_chunk",
++          path: "/notes/report.html",
++          rootPath: "/notes",
++          offset: 0,
++          length: 30,
++          revision: "e".repeat(64),
++        },
++        {
++          type: "host.read_file_chunk",
+           path: "/notes/report.html",
+           rootPath: "/notes",
++          offset: 0,
++          length: 0,
++          revision: null,
++        },
++        {
++          type: "host.read_file_chunk",
++          path: "/notes/report.html",
++          rootPath: "/notes",
++          offset: 0,
++          length: 30,
++          revision: "e".repeat(64),
+         },
+       ]);
++      commands.length = 0;
++
++      const boundary = await harness.app.request(`${lease.baseUrl}/boundary.html?__bbPreviewCamera=123e4567-e89b-42d3-a456-426614174000`);
++      const boundaryBytes = Buffer.from(await boundary.arrayBuffer());
++      const boundaryHash = createHash("sha256").update(boundaryBytes).digest("hex");
++      expect(boundary.status).toBe(200);
++      expect(boundaryBytes.byteLength).toBeGreaterThan(5 * 1024 * 1024);
++      expect(boundaryBytes.byteLength).toBeLessThanOrEqual(5 * 1024 * 1024 + 4 * 1024);
++      expect(boundary.headers.get("content-length")).toBe(String(boundaryBytes.byteLength));
++      expect(boundary.headers.get("etag")).toBe(`"${boundaryHash}"`);
++      expect(boundary.headers.get("content-security-policy")).toBe("sandbox allow-scripts");
++      expect(commands.length).toBeGreaterThan(1);
+     });
+   });
+ 
+diff --git a/apps/server/test/hosts/html-preview-camera-bridge.test.ts b/apps/server/test/hosts/html-preview-camera-bridge.test.ts
+new file mode 100644
+index 000000000..1e9e04a13
+--- /dev/null
++++ b/apps/server/test/hosts/html-preview-camera-bridge.test.ts
+@@ -0,0 +1,40 @@
++import { describe, expect, it } from "vitest";
++import { getHtmlPreviewCameraToken, injectHtmlPreviewCameraBridge } from "../../src/services/hosts/html-preview-camera-bridge.js";
++
++const token = "123e4567-e89b-42d3-a456-426614174000";
++
++describe("HTML preview camera bridge", () => {
++  it.each([
++    ["doctype and comment", "<!doctype html><!-- <head> --><html><head><title>x</title></head></html>", 1],
++    ["script string", "<html><script>const sample = '<head>';</script><head></head></html>", 1],
++    ["fragment", "<main>fragment</main>", 1],
++  ])("inserts into a real HTML location for %s", (_name, html, expected) => {
++    const result = injectHtmlPreviewCameraBridge(html as string, token, "https://bb.test");
++    expect((result.content.match(/<script>\(\(\)=>/giu) ?? []).length).toBe(expected);
++    expect(result.sizeBytes).toBe(Buffer.byteLength(result.content));
++  });
++
++  it("keeps no-token HTML byte-identical and accepts only UUID tokens", () => {
++    const url = new URL("https://bb.test/file.html?__bbPreviewCamera=not-a-token");
++    expect(getHtmlPreviewCameraToken(url)).toBeUndefined();
++    const source = "<!doctype html><p>raw</p>";
++    expect(source).toBe("<!doctype html><p>raw</p>");
++  });
++
++  it("keeps relative resources intact and bounds source plus bootstrap size", () => {
++    const source = '<!doctype html><html><head><base href="./assets/"><link rel="stylesheet" href="site.css"></head></html>';
++    const result = injectHtmlPreviewCameraBridge(source, token, "https://bb.test");
++    expect(result.content).toContain('<base href="./assets/"><link rel="stylesheet" href="site.css">');
++    expect(result.sizeBytes - Buffer.byteLength(source)).toBeLessThan(4 * 1024);
++    expect(result.content).toContain("s('gesture-change'");
++    expect(() => injectHtmlPreviewCameraBridge("x".repeat(5 * 1024 * 1024 + 1), token, "https://bb.test")).toThrow(/5 MB/u);
++  });
++
++  it("inserts before source markup so RCDATA and inert template text cannot swallow the bridge", () => {
++    const source = '<!doctype html><textarea><head>value</textarea><template><head>inert</template><p>live</p>';
++    const result = injectHtmlPreviewCameraBridge(source, token, "https://bb.test");
++    expect(result.content).toContain(`<!doctype html><head><script>(()=>{const t="${token}"`);
++    expect(result.content).toContain(source.slice("<!doctype html>".length));
++    expect(result.content.indexOf("<script>")).toBeLessThan(result.content.indexOf("<textarea>"));
++  });
++});
+diff --git a/apps/server/test/public/public-thread-tabs.test.ts b/apps/server/test/public/public-thread-tabs.test.ts
+index 1490f8c73..68ca352d4 100644
+--- a/apps/server/test/public/public-thread-tabs.test.ts
++++ b/apps/server/test/public/public-thread-tabs.test.ts
+@@ -38,6 +38,7 @@ const ALL_TAB_KINDS: readonly ThreadTab[] = [
+     environmentId: "env_1",
+     id: "workspace-file",
+     kind: "workspace-file-preview",
++    previewZoom: 2.25,
+     lineRange: { endLineNumber: 12, startLineNumber: 8 },
+     path: "src/index.ts",
+     projectId: "prj_1",
+diff --git a/packages/client-core/src/panel/fixed-panel-tabs-state.ts b/packages/client-core/src/panel/fixed-panel-tabs-state.ts
+index 150bf9e85..3a17900a2 100644
+--- a/packages/client-core/src/panel/fixed-panel-tabs-state.ts
++++ b/packages/client-core/src/panel/fixed-panel-tabs-state.ts
+@@ -85,6 +85,7 @@ const workspaceFilePreviewFixedPanelTabSchema = z
+     environmentId: z.string().min(1).nullable(),
+     id: z.string().min(1),
+     kind: z.literal("workspace-file-preview"),
++    previewZoom: z.number().finite().min(1).max(8).optional(),
+     lineRange: filePreviewLineRangeSchema.nullable().default(null),
+     path: z.string().min(1),
+     projectId: z.string().min(1).nullable().default(null),
+@@ -98,6 +99,7 @@ const hostFilePreviewFixedPanelTabSchema = z
+     hostId: z.string().min(1).nullable().default(null),
+     id: z.string().min(1),
+     kind: z.literal("host-file-preview"),
++    previewZoom: z.number().finite().min(1).max(8).optional(),
+     lineRange: filePreviewLineRangeSchema.nullable().default(null),
+     path: z.string().min(1),
+     threadId: z.string().min(1).nullable().default(null),
+@@ -109,6 +111,7 @@ const threadStorageFilePreviewFixedPanelTabSchema = z
+     id: z.string().min(1),
+     isPinned: z.boolean(),
+     kind: z.literal("thread-storage-file-preview"),
++    previewZoom: z.number().finite().min(1).max(8).optional(),
+     lineRange: filePreviewLineRangeSchema.nullable().default(null),
+     path: z.string().min(1),
+     threadId: z.string().min(1).nullable().default(null),
+@@ -233,6 +236,7 @@ export interface WorkspaceFilePreviewFixedPanelTab {
+   kind: "workspace-file-preview";
+   lineRange: FilePreviewLineRange | null;
+   path: string;
++  previewZoom?: number;
+   projectId: string | null;
+   source: EnvironmentFilePreviewSource;
+   statusLabel: WorkspaceFilePreviewStatusLabel | null;
+@@ -245,6 +249,7 @@ export interface HostFilePreviewFixedPanelTab {
+   kind: "host-file-preview";
+   lineRange: FilePreviewLineRange | null;
+   path: string;
++  previewZoom?: number;
+   threadId: string | null;
+ }
+ 
+@@ -255,6 +260,7 @@ export interface ThreadStorageFilePreviewFixedPanelTab {
+   kind: "thread-storage-file-preview";
+   lineRange: FilePreviewLineRange | null;
+   path: string;
++  previewZoom?: number;
+   threadId: string | null;
+ }
+ 
+@@ -1056,6 +1062,7 @@ export function areFixedPanelTabsEquivalent(
+           b: b.lineRange,
+         }) &&
+         a.path === b.path &&
++        a.previewZoom === b.previewZoom &&
+         a.projectId === b.projectId &&
+         areEnvironmentFilePreviewSourcesEqual(a.source, b.source) &&
+         a.statusLabel === b.statusLabel
+@@ -1070,6 +1077,7 @@ export function areFixedPanelTabsEquivalent(
+           b: b.lineRange,
+         }) &&
+         a.path === b.path &&
++        a.previewZoom === b.previewZoom &&
+         a.threadId === b.threadId
+       );
+     case "browser":
+@@ -1092,6 +1100,7 @@ export function areFixedPanelTabsEquivalent(
+           b: b.lineRange,
+         }) &&
+         a.path === b.path &&
++        a.previewZoom === b.previewZoom &&
+         a.threadId === b.threadId
+       );
+     case "terminal":
+diff --git a/packages/server-contract/src/api/preview-camera-bridge.ts b/packages/server-contract/src/api/preview-camera-bridge.ts
+new file mode 100644
+index 000000000..e7b992fd4
+--- /dev/null
++++ b/packages/server-contract/src/api/preview-camera-bridge.ts
+@@ -0,0 +1,70 @@
++import { z } from "zod";
++
++export const PREVIEW_CAMERA_BRIDGE_QUERY = "__bbPreviewCamera";
++export const PREVIEW_CAMERA_BRIDGE_VERSION = 1;
++export const PREVIEW_CAMERA_ZOOM_COMMAND_EVENT = "bb:preview-camera-zoom";
++export const previewCameraZoomCommandSchema = z.enum(["in", "out", "reset"]);
++
++const previewCameraCoordinateSchema = z.number().finite().min(-100_000).max(100_000);
++const previewCameraPointSchema = z
++  .object({
++    x: previewCameraCoordinateSchema,
++    y: previewCameraCoordinateSchema,
++  })
++  .strict();
++const previewCameraEnvelopeSchema = z.object({
++  token: z.string().uuid(),
++  version: z.literal(PREVIEW_CAMERA_BRIDGE_VERSION),
++});
++
++export const previewCameraBridgeMessageSchema = z.discriminatedUnion("type", [
++  previewCameraEnvelopeSchema.extend({
++    clientX: previewCameraCoordinateSchema,
++    clientY: previewCameraCoordinateSchema,
++    deltaMode: z.number().int().min(0).max(2),
++    deltaY: z.number().finite().min(-10_000).max(10_000),
++    type: z.literal("wheel"),
++  }).strict(),
++  previewCameraEnvelopeSchema.extend({
++    center: previewCameraPointSchema,
++    distance: z.number().finite().min(0).max(100_000),
++    type: z.literal("pinch-start"),
++  }).strict(),
++  previewCameraEnvelopeSchema.extend({
++    center: previewCameraPointSchema,
++    distance: z.number().finite().min(0).max(100_000),
++    type: z.literal("pinch-change"),
++  }).strict(),
++  previewCameraEnvelopeSchema.extend({
++    center: previewCameraPointSchema,
++    ratio: z.number().finite().min(0.01).max(100),
++    type: z.literal("gesture-change"),
++  }).strict(),
++  previewCameraEnvelopeSchema.extend({
++    type: z.literal("pinch-end"),
++  }).strict(),
++  previewCameraEnvelopeSchema.extend({
++    editable: z.boolean(),
++    key: z.enum(["+", "=", "-", "_", "0"]),
++    metaKey: z.boolean(),
++    ctrlKey: z.boolean(),
++    shiftKey: z.boolean(),
++    type: z.literal("key"),
++  }).strict(),
++  previewCameraEnvelopeSchema.extend({
++    editable: z.boolean(),
++    pressed: z.boolean(),
++    type: z.literal("space"),
++  }).strict(),
++]);
++
++export const previewCameraBridgeQuerySchema = z.object({
++  [PREVIEW_CAMERA_BRIDGE_QUERY]: z.string().uuid().optional(),
++});
++
++export type PreviewCameraBridgeMessage = z.infer<
++  typeof previewCameraBridgeMessageSchema
++>;
++export type PreviewCameraBridgeQuery = z.infer<
++  typeof previewCameraBridgeQuerySchema
++>;
+diff --git a/packages/server-contract/src/api/thread-tabs.ts b/packages/server-contract/src/api/thread-tabs.ts
+index 66ac25035..9167633a5 100644
+--- a/packages/server-contract/src/api/thread-tabs.ts
++++ b/packages/server-contract/src/api/thread-tabs.ts
+@@ -104,6 +104,7 @@ export const threadTabSchema = z.discriminatedUnion("kind", [
+       environmentId: z.string().min(1).nullable(),
+       id: threadTabIdSchema,
+       kind: z.literal("workspace-file-preview"),
++      previewZoom: z.number().finite().min(1).max(8).optional(),
+       lineRange: threadTabLineRangeSchema.nullable(),
+       path: threadTabPathSchema,
+       projectId: z.string().min(1).nullable(),
+@@ -117,6 +118,7 @@ export const threadTabSchema = z.discriminatedUnion("kind", [
+       hostId: z.string().min(1).nullable().default(null),
+       id: threadTabIdSchema,
+       kind: z.literal("host-file-preview"),
++      previewZoom: z.number().finite().min(1).max(8).optional(),
+       lineRange: threadTabLineRangeSchema.nullable(),
+       path: threadTabPathSchema,
+       threadId: z.string().min(1).nullable(),
+@@ -128,6 +130,7 @@ export const threadTabSchema = z.discriminatedUnion("kind", [
+       id: threadTabIdSchema,
+       isPinned: z.boolean(),
+       kind: z.literal("thread-storage-file-preview"),
++      previewZoom: z.number().finite().min(1).max(8).optional(),
+       lineRange: threadTabLineRangeSchema.nullable(),
+       path: threadTabPathSchema,
+       threadId: z.string().min(1).nullable(),
+diff --git a/packages/server-contract/src/api/threads.ts b/packages/server-contract/src/api/threads.ts
+index ec1023cc1..2584c31c0 100644
+--- a/packages/server-contract/src/api/threads.ts
++++ b/packages/server-contract/src/api/threads.ts
+@@ -989,6 +989,7 @@ export type ThreadStoragePathsQuery = z.infer<
+ 
+ export const threadStorageContentQuerySchema = z.object({
+   path: z.string().min(1),
++  __bbPreviewCamera: z.string().uuid().optional(),
+ });
+ export type ThreadStorageContentQuery = z.infer<
+   typeof threadStorageContentQuerySchema
+@@ -1006,6 +1007,7 @@ export type ThreadStorageLocationResponse = z.infer<
+ 
+ export const threadHostFileContentQuerySchema = z.object({
+   path: z.string().min(1),
++  __bbPreviewCamera: z.string().uuid().optional(),
+ });
+ export type ThreadHostFileContentQuery = z.infer<
+   typeof threadHostFileContentQuerySchema
+@@ -1013,6 +1015,7 @@ export type ThreadHostFileContentQuery = z.infer<
+ 
+ export const threadFilesRawQuerySchema = z.object({
+   path: z.string().min(1),
++  __bbPreviewCamera: z.string().uuid().optional(),
+ });
+ export type ThreadFilesRawQuery = z.infer<typeof threadFilesRawQuerySchema>;
+ 
+diff --git a/packages/server-contract/src/index.ts b/packages/server-contract/src/index.ts
+index 9e1d828fc..2601db39b 100644
+--- a/packages/server-contract/src/index.ts
++++ b/packages/server-contract/src/index.ts
+@@ -1,6 +1,7 @@
+ export * from "./api-client.js";
+ export * from "./api-types.js";
+ export * from "./api/thread-tabs.js";
++export * from "./api/preview-camera-bridge.js";
+ export * from "./common.js";
+ export * from "./errors.js";
+ export * from "./public-api.js";
+diff --git a/packages/server-contract/src/public-api.ts b/packages/server-contract/src/public-api.ts
+index f62762389..9da41f26b 100644
+--- a/packages/server-contract/src/public-api.ts
++++ b/packages/server-contract/src/public-api.ts
+@@ -283,6 +283,7 @@ import type {
+   UpdateThreadTabsRequest,
+ } from "./api/thread-tabs.js";
+ import { updateThreadTabsRequestSchema } from "./api/thread-tabs.js";
++import { previewCameraBridgeQuerySchema, type PreviewCameraBridgeQuery } from "./api/preview-camera-bridge.js";
+ import type {
+   PathUiPreferenceKey,
+   UiPreferenceResponse,
+@@ -1663,7 +1664,7 @@ export const publicApiRoutes = {
+     storageFile: defineRoute({
+       path: "/threads/:id/thread-storage/files/:filePath{.+}",
+       method: "get",
+-      request: noRequest<PathThreadAndFilePath>(),
++      request: queryRequest<PathThreadAndFilePath, PreviewCameraBridgeQuery>(previewCameraBridgeQuerySchema),
+       response: binaryResponse<Uint8Array>(),
+     }),
+     storagePaths: defineRoute({
+@@ -1693,7 +1694,7 @@ export const publicApiRoutes = {
+     worktreeFile: defineRoute({
+       path: "/threads/:id/worktree/files/:filePath{.+}",
+       method: "get",
+-      request: noRequest<PathThreadAndFilePath>(),
++      request: queryRequest<PathThreadAndFilePath, PreviewCameraBridgeQuery>(previewCameraBridgeQuerySchema),
+       response: binaryResponse<Uint8Array>(),
+     }),
+     rawFile: defineRoute({
+diff --git a/packages/server-contract/test/contract.test.ts b/packages/server-contract/test/contract.test.ts
+index c3645d0f2..6e3760126 100644
+--- a/packages/server-contract/test/contract.test.ts
++++ b/packages/server-contract/test/contract.test.ts
+@@ -1991,6 +1991,7 @@ describe("server-contract clients", () => {
+       publicClient.threads[":id"]["thread-storage"].files[":filePath{.+}"].$url(
+         {
+           param: { id: "thr_123", filePath: "reports/a%20b/preview.html" },
++          query: {},
+         },
+       ).pathname,
+     ).toBe(
+@@ -1999,6 +2000,7 @@ describe("server-contract clients", () => {
+     expect(
+       publicClient.threads[":id"].worktree.files[":filePath{.+}"].$url({
+         param: { id: "thr_123", filePath: "public/report.html" },
++        query: {},
+       }).pathname,
+     ).toBe("/api/v1/threads/thr_123/worktree/files/public/report.html");
+     expect(
+diff --git a/packages/server-contract/test/preview-camera-bridge.test.ts b/packages/server-contract/test/preview-camera-bridge.test.ts
+new file mode 100644
+index 000000000..9af1839d6
+--- /dev/null
++++ b/packages/server-contract/test/preview-camera-bridge.test.ts
+@@ -0,0 +1,24 @@
++import { describe, expect, it } from "vitest";
++import { previewCameraBridgeMessageSchema } from "../src/api/preview-camera-bridge.js";
++
++const token = "123e4567-e89b-42d3-a456-426614174000";
++
++describe("preview camera bridge schema", () => {
++  it("accepts finite bounded camera events", () => {
++    expect(previewCameraBridgeMessageSchema.safeParse({
++      type: "wheel", token, version: 1, clientX: 10, clientY: 12, deltaY: -4, deltaMode: 0,
++    }).success).toBe(true);
++    expect(previewCameraBridgeMessageSchema.safeParse({
++      type: "gesture-change", token, version: 1, center: { x: 4, y: 5 }, ratio: 1.1,
++    }).success).toBe(true);
++    expect(previewCameraBridgeMessageSchema.safeParse({
++      type: "gesture-change", token, version: 1, center: { x: 4, y: 5 }, ratio: 0,
++    }).success).toBe(false);
++  });
++
++  it("rejects malformed, nonfinite, and out of range payloads", () => {
++    expect(previewCameraBridgeMessageSchema.safeParse({ type: "wheel", token, version: 1, clientX: Number.NaN, clientY: 12, deltaY: -4, deltaMode: 0 }).success).toBe(false);
++    expect(previewCameraBridgeMessageSchema.safeParse({ type: "wheel", token, version: 1, clientX: 100001, clientY: 12, deltaY: -4, deltaMode: 0 }).success).toBe(false);
++    expect(previewCameraBridgeMessageSchema.safeParse({ type: "reset", token, version: 1 }).success).toBe(false);
++  });
++});
+diff --git a/packages/server-contract/test/thread-tabs.test.ts b/packages/server-contract/test/thread-tabs.test.ts
+index 1703383c7..5852f1ff1 100644
+--- a/packages/server-contract/test/thread-tabs.test.ts
++++ b/packages/server-contract/test/thread-tabs.test.ts
+@@ -103,6 +103,23 @@ describe("thread tab file-opener owner", () => {
+   });
+ });
+ 
++describe("file preview zoom persistence", () => {
++  const tabs = [
++    { id: "workspace-file-preview:doc", kind: "workspace-file-preview", environmentId: null, lineRange: null, path: "report.html", projectId: null, source: { kind: "working-tree" }, statusLabel: null },
++    { id: "host-file-preview:doc", kind: "host-file-preview", environmentId: null, hostId: null, lineRange: null, path: "report.html", threadId: null },
++    { id: "thread-storage-file-preview:doc", kind: "thread-storage-file-preview", environmentId: null, isPinned: true, lineRange: null, path: "report.html", threadId: "thr_docs" },
++  ] as const;
++
++  it.each(tabs.map((tab) => [tab.kind, tab] as const))("round-trips zoom for %s", (_kind, tab) => {
++    const parsed = threadTabsSchema.parse([{ ...tab, previewZoom: 2.5 }]);
++    expect(parsed[0]).toMatchObject({ id: tab.id, previewZoom: 2.5 });
++  });
++
++  it("rejects zoom outside the supported scale", () => {
++    expect(threadTabsSchema.safeParse([{ ...tabs[0], previewZoom: 9 }]).success).toBe(false);
++  });
++});
++
+ const TERMINAL_TAB_BASE = {
+   id: "terminal:term_abc:none",
+   kind: "terminal",
+diff --git a/packages/shared-ui/package.json b/packages/shared-ui/package.json
+index bd87b2811..793b9ce3e 100644
+--- a/packages/shared-ui/package.json
++++ b/packages/shared-ui/package.json
+@@ -114,6 +114,16 @@
+       "types": "./src/components/ui/icon-registry.ts",
+       "default": "./src/components/ui/icon-registry.ts"
+     },
++    "./preview-camera-math": {
++      "source": "./src/components/ui/preview-camera-math.ts",
++      "types": "./src/components/ui/preview-camera-math.ts",
++      "default": "./src/components/ui/preview-camera-math.ts"
++    },
++    "./preview-camera": {
++      "source": "./src/components/ui/preview-camera.tsx",
++      "types": "./src/components/ui/preview-camera.tsx",
++      "default": "./src/components/ui/preview-camera.tsx"
++    },
+     "./input": {
+       "source": "./src/components/ui/input.tsx",
+       "types": "./src/components/ui/input.tsx",
+@@ -280,6 +290,7 @@
+     ]
+   },
+   "dependencies": {
++    "@bb/server-contract": "workspace:*",
+     "@hugeicons/core-free-icons": "^4.3.4",
+     "@hugeicons/react": "^1.1.6",
+     "class-variance-authority": "^0.7.1",
+diff --git a/packages/shared-ui/src/components/ui/preview-camera-math.ts b/packages/shared-ui/src/components/ui/preview-camera-math.ts
+new file mode 100644
+index 000000000..c845a9cb7
+--- /dev/null
++++ b/packages/shared-ui/src/components/ui/preview-camera-math.ts
+@@ -0,0 +1,99 @@
++export interface PreviewCameraPoint {
++  x: number;
++  y: number;
++}
++
++export interface PreviewCameraView {
++  offset: PreviewCameraPoint;
++  scale: number;
++}
++
++interface ZoomPreviewCameraArgs {
++  focalPoint: PreviewCameraPoint;
++  maxScale: number;
++  minScale: number;
++  nextScale: number;
++  view: PreviewCameraView;
++}
++
++interface PinchPreviewCameraArgs {
++  currentCenter: PreviewCameraPoint;
++  currentDistance: number;
++  maxScale: number;
++  minScale: number;
++  startCenter: PreviewCameraPoint;
++  startDistance: number;
++  startView: PreviewCameraView;
++}
++
++export function clampPreviewCameraScale({
++  maxScale,
++  minScale,
++  scale,
++}: {
++  maxScale: number;
++  minScale: number;
++  scale: number;
++}): number {
++  if (!Number.isFinite(scale)) return minScale;
++  return Math.min(maxScale, Math.max(minScale, scale));
++}
++
++export function zoomPreviewCamera({
++  focalPoint,
++  maxScale,
++  minScale,
++  nextScale,
++  view,
++}: ZoomPreviewCameraArgs): PreviewCameraView {
++  const clampedNextScale = clampPreviewCameraScale({
++    maxScale,
++    minScale,
++    scale: nextScale,
++  });
++  if (clampedNextScale === view.scale) return view;
++
++  const scaleRatio = clampedNextScale / view.scale;
++  return {
++    offset: {
++      x: focalPoint.x - scaleRatio * (focalPoint.x - view.offset.x),
++      y: focalPoint.y - scaleRatio * (focalPoint.y - view.offset.y),
++    },
++    scale: clampedNextScale,
++  };
++}
++
++export function pinchPreviewCamera({
++  currentCenter,
++  currentDistance,
++  maxScale,
++  minScale,
++  startCenter,
++  startDistance,
++  startView,
++}: PinchPreviewCameraArgs): PreviewCameraView {
++  if (
++    !Number.isFinite(startDistance) ||
++    !Number.isFinite(currentDistance) ||
++    startDistance <= 0 ||
++    currentDistance < 0
++  ) {
++    return startView;
++  }
++
++  const zoomedView = zoomPreviewCamera({
++    focalPoint: startCenter,
++    maxScale,
++    minScale,
++    nextScale: startView.scale * (currentDistance / startDistance),
++    view: startView,
++  });
++
++  return {
++    offset: {
++      x: zoomedView.offset.x + currentCenter.x - startCenter.x,
++      y: zoomedView.offset.y + currentCenter.y - startCenter.y,
++    },
++    scale: zoomedView.scale,
++  };
++}
+diff --git a/packages/shared-ui/src/components/ui/preview-camera.tsx b/packages/shared-ui/src/components/ui/preview-camera.tsx
+new file mode 100644
+index 000000000..8cd5d3938
+--- /dev/null
++++ b/packages/shared-ui/src/components/ui/preview-camera.tsx
+@@ -0,0 +1,666 @@
++import {
++  useCallback,
++  useEffect,
++  useMemo,
++  useRef,
++  useState,
++  type CSSProperties,
++  type KeyboardEvent as ReactKeyboardEvent,
++  type PointerEvent as ReactPointerEvent,
++  type ReactNode,
++} from "react";
++import {
++  PREVIEW_CAMERA_BRIDGE_QUERY,
++  PREVIEW_CAMERA_ZOOM_COMMAND_EVENT,
++  previewCameraBridgeMessageSchema,
++  previewCameraZoomCommandSchema,
++  type PreviewCameraBridgeMessage,
++} from "@bb/server-contract";
++import { Button } from "./button.js";
++import { Icon } from "./icon.js";
++import { cn } from "../../lib/utils.js";
++import {
++  clampPreviewCameraScale,
++  pinchPreviewCamera,
++  zoomPreviewCamera,
++  type PreviewCameraPoint,
++  type PreviewCameraView,
++} from "./preview-camera-math.js";
++
++const PREVIEW_CAMERA_MIN_SCALE = 1;
++const PREVIEW_CAMERA_MAX_SCALE = 8;
++const PREVIEW_CAMERA_WHEEL_INTENSITY = 0.01;
++const PREVIEW_CAMERA_MIN_WHEEL_FACTOR = 0.82;
++const PREVIEW_CAMERA_MAX_WHEEL_FACTOR = 1.22;
++const PREVIEW_CAMERA_MAX_MESSAGES_PER_SECOND = 240;
++const PREVIEW_CAMERA_COMMIT_DELAY_MS = 250;
++
++interface PreviewCameraProps {
++  children?: ReactNode;
++  className?: string;
++  style?: CSSProperties;
++  tabIndex?: number;
++  initialScale?: number;
++  onScaleCommit?: (scale: number) => void;
++  sandbox?: "allow-scripts";
++  src?: string;
++  title?: string;
++  onFrameLoad?: () => void;
++  onFrameError?: () => void;
++}
++
++interface PreviewCameraPinchState {
++  center: PreviewCameraPoint;
++  distance: number;
++  view: PreviewCameraView;
++}
++
++interface PreviewCameraPanState {
++  pointerId: number;
++  startOffset: PreviewCameraPoint;
++  startPoint: PreviewCameraPoint;
++}
++
++function createFrameToken(): string {
++  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
++  const bytes = crypto.getRandomValues(new Uint8Array(16));
++  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
++  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
++  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0"));
++  return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
++}
++
++export function addPreviewCameraBridgeToken(url: string, token: string): string {
++  const relative = !/^[a-z][a-z\d+.-]*:/iu.test(url) && !url.startsWith("//");
++  const base = window.location.href === "about:blank" ? "http://localhost/" : window.location.href;
++  const parsed = new URL(url, base);
++  parsed.searchParams.set(PREVIEW_CAMERA_BRIDGE_QUERY, token);
++  return relative || parsed.origin === window.location.origin
++    ? `${parsed.pathname}${parsed.search}${parsed.hash}`
++    : parsed.href;
++}
++
++function isEditableElement(target: EventTarget | null): boolean {
++  if (!(target instanceof HTMLElement)) return false;
++  return Boolean(
++    target.isContentEditable ||
++    target.closest(
++      'input,textarea,select,[role="textbox"]',
++    ),
++  );
++}
++
++function getWheelFactor(deltaY: number, deltaMode: number): number {
++  const normalized =
++    deltaMode === 1 ? deltaY * 16 : deltaMode === 2 ? deltaY * 800 : deltaY;
++  return Math.min(
++    PREVIEW_CAMERA_MAX_WHEEL_FACTOR,
++    Math.max(
++      PREVIEW_CAMERA_MIN_WHEEL_FACTOR,
++      Math.exp(-normalized * PREVIEW_CAMERA_WHEEL_INTENSITY),
++    ),
++  );
++}
++
++function mapFramePointToViewport({
++  frame,
++  point,
++  viewport,
++}: {
++  frame: HTMLIFrameElement;
++  point: PreviewCameraPoint;
++  viewport: HTMLElement;
++}): PreviewCameraPoint {
++  const frameRect = frame.getBoundingClientRect();
++  const viewportRect = viewport.getBoundingClientRect();
++  const scaleX = frame.clientWidth > 0 ? frameRect.width / frame.clientWidth : 1;
++  const scaleY = frame.clientHeight > 0 ? frameRect.height / frame.clientHeight : 1;
++  return {
++    x: frameRect.left - viewportRect.left + point.x * scaleX,
++    y: frameRect.top - viewportRect.top + point.y * scaleY,
++  };
++}
++
++function mapFrameDistanceToViewport(frame: HTMLIFrameElement, distance: number): number {
++  const rect = frame.getBoundingClientRect();
++  const scaleX = frame.clientWidth > 0 ? rect.width / frame.clientWidth : 1;
++  const scaleY = frame.clientHeight > 0 ? rect.height / frame.clientHeight : 1;
++  return distance * (scaleX + scaleY) / 2;
++}
++
++function isZoomKey(key: string): key is "+" | "=" | "-" | "_" | "0" {
++  return key === "+" || key === "=" || key === "-" || key === "_" || key === "0";
++}
++
++export function PreviewCamera({
++  children,
++  className,
++  style,
++  tabIndex = 0,
++  initialScale = 1,
++  onScaleCommit,
++  sandbox,
++  src,
++  title = "HTML preview",
++  onFrameLoad,
++  onFrameError,
++}: PreviewCameraProps) {
++  const token = useMemo(createFrameToken, [src]);
++  const frameRef = useRef<HTMLIFrameElement>(null);
++  const viewportRef = useRef<HTMLDivElement>(null);
++  const [view, setView] = useState<PreviewCameraView>(() => ({
++    offset: { x: 0, y: 0 },
++    scale: clampPreviewCameraScale({
++      minScale: PREVIEW_CAMERA_MIN_SCALE,
++      maxScale: PREVIEW_CAMERA_MAX_SCALE,
++      scale: initialScale,
++    }),
++  }));
++  const viewRef = useRef(view);
++  const pendingViewRef = useRef<PreviewCameraView | null>(null);
++  const frameRequestRef = useRef<number | null>(null);
++  const pinchStateRef = useRef<PreviewCameraPinchState | null>(null);
++  const panStateRef = useRef<PreviewCameraPanState | null>(null);
++  const messageTimesRef = useRef<number[]>([]);
++  const commitTimeoutRef = useRef<number | null>(null);
++  const pendingScaleCommitRef = useRef<{ callback: typeof onScaleCommit; scale: number } | null>(null);
++  const touchPointsRef = useRef(new Map<number, PreviewCameraPoint>());
++  const previousSrcRef = useRef(src);
++  const [spacePressed, setSpacePressed] = useState(false);
++  const [isPanning, setIsPanning] = useState(false);
++  const applyView = useCallback((nextView: PreviewCameraView) => {
++    const viewport = viewportRef.current;
++    const width = viewport?.clientWidth ?? 0;
++    const height = viewport?.clientHeight ?? 0;
++    const minX = width > 0 ? width - width * nextView.scale : -100_000;
++    const minY = height > 0 ? height - height * nextView.scale : -100_000;
++    const boundedView = {
++      offset: {
++        x: Math.min(0, Math.max(minX, nextView.offset.x)),
++        y: Math.min(0, Math.max(minY, nextView.offset.y)),
++      },
++      scale: clampPreviewCameraScale({
++        maxScale: PREVIEW_CAMERA_MAX_SCALE,
++        minScale: PREVIEW_CAMERA_MIN_SCALE,
++        scale: nextView.scale,
++      }),
++    };
++    viewRef.current = boundedView;
++    pendingViewRef.current = boundedView;
++    if (frameRequestRef.current === null) {
++      frameRequestRef.current = window.requestAnimationFrame(() => {
++        frameRequestRef.current = null;
++        const pending = pendingViewRef.current;
++        pendingViewRef.current = null;
++        if (pending) setView(pending);
++      });
++    }
++    if (commitTimeoutRef.current !== null) {
++      window.clearTimeout(commitTimeoutRef.current);
++    }
++    pendingScaleCommitRef.current = { callback: onScaleCommit, scale: boundedView.scale };
++    commitTimeoutRef.current = window.setTimeout(() => {
++      commitTimeoutRef.current = null;
++      const pending = pendingScaleCommitRef.current;
++      pendingScaleCommitRef.current = null;
++      pending?.callback?.(pending.scale);
++    }, PREVIEW_CAMERA_COMMIT_DELAY_MS);
++  }, [onScaleCommit]);
++
++  const zoomAt = useCallback(
++    (focalPoint: PreviewCameraPoint, factor: number) => {
++      const current = viewRef.current;
++      applyView(
++        zoomPreviewCamera({
++          focalPoint,
++          maxScale: PREVIEW_CAMERA_MAX_SCALE,
++          minScale: PREVIEW_CAMERA_MIN_SCALE,
++          nextScale: current.scale * factor,
++          view: current,
++        }),
++      );
++    },
++    [applyView],
++  );
++
++  const zoomStep = useCallback(
++    (direction: -1 | 1) => {
++      const viewport = viewportRef.current;
++      if (!viewport) return;
++      const rect = viewport.getBoundingClientRect();
++      zoomAt(
++        { x: rect.width / 2, y: rect.height / 2 },
++        direction > 0 ? 1.25 : 0.8,
++      );
++    },
++    [zoomAt],
++  );
++
++  const reset = useCallback(() => {
++    applyView({ offset: { x: 0, y: 0 }, scale: 1 });
++  }, [applyView]);
++
++  useEffect(() => {
++    const handleZoomCommand = (event: Event) => {
++      const viewport = viewportRef.current;
++      if (!(event instanceof CustomEvent) || !event.cancelable || event.defaultPrevented || !viewport?.contains(document.activeElement)) return;
++      const command = previewCameraZoomCommandSchema.safeParse(event.detail);
++      if (!command.success) return;
++      event.preventDefault();
++      if (command.data === "reset") reset();
++      else zoomStep(command.data === "in" ? 1 : -1);
++    };
++    window.addEventListener(PREVIEW_CAMERA_ZOOM_COMMAND_EVENT, handleZoomCommand);
++    return () => window.removeEventListener(PREVIEW_CAMERA_ZOOM_COMMAND_EVENT, handleZoomCommand);
++  }, [reset, zoomStep]);
++
++  useEffect(() => {
++    const scale = clampPreviewCameraScale({ maxScale: PREVIEW_CAMERA_MAX_SCALE, minScale: PREVIEW_CAMERA_MIN_SCALE, scale: initialScale });
++    const sourceChanged = previousSrcRef.current !== src;
++    previousSrcRef.current = src;
++    if (!sourceChanged && Math.abs(viewRef.current.scale - scale) < 0.0001) return;
++    if (sourceChanged) {
++      if (commitTimeoutRef.current !== null) {
++        window.clearTimeout(commitTimeoutRef.current);
++        commitTimeoutRef.current = null;
++        const pending = pendingScaleCommitRef.current;
++        pendingScaleCommitRef.current = null;
++        pending?.callback?.(pending.scale);
++      }
++      viewRef.current = { offset: { x: 0, y: 0 }, scale };
++    } else {
++      const viewport = viewportRef.current;
++      const focalPoint = viewport
++        ? { x: viewport.clientWidth / 2, y: viewport.clientHeight / 2 }
++        : { x: 0, y: 0 };
++      viewRef.current = zoomPreviewCamera({
++        focalPoint,
++        maxScale: PREVIEW_CAMERA_MAX_SCALE,
++        minScale: PREVIEW_CAMERA_MIN_SCALE,
++        nextScale: scale,
++        view: viewRef.current,
++      });
++    }
++    setView(viewRef.current);
++    setSpacePressed(false);
++    setIsPanning(false);
++    pinchStateRef.current = null;
++    panStateRef.current = null;
++  }, [initialScale, src]);
++
++  useEffect(() => {
++    const viewport = viewportRef.current;
++    if (!viewport) return;
++    const handleWheel = (event: WheelEvent) => {
++      if (!event.ctrlKey || isEditableElement(event.target)) return;
++      event.preventDefault();
++      const rect = viewport.getBoundingClientRect();
++      zoomAt(
++        {
++          x: event.clientX - rect.left,
++          y: event.clientY - rect.top,
++        },
++        getWheelFactor(event.deltaY, event.deltaMode),
++      );
++    };
++    viewport.addEventListener("wheel", handleWheel, { capture: true, passive: false });
++    return () => viewport.removeEventListener("wheel", handleWheel, true);
++  }, [zoomAt]);
++
++  const handleKeyDown = useCallback(
++    (event: ReactKeyboardEvent<HTMLDivElement>) => {
++      if (isEditableElement(event.target)) return;
++      if (event.code === "Space") {
++        if (event.target !== event.currentTarget && event.target instanceof HTMLElement && event.target.closest("button,a,[role=button],[tabindex]:not([tabindex='-1'])")) return;
++        event.preventDefault();
++        setSpacePressed(true);
++        return;
++      }
++      if (!isZoomKey(event.key)) return;
++      event.preventDefault();
++      if (event.key === "+" || event.key === "=" || event.key === "_") {
++        zoomStep(1);
++      } else if (event.key === "-") {
++        zoomStep(-1);
++      } else {
++        reset();
++      }
++    },
++    [reset, zoomStep],
++  );
++
++  const handleKeyUp = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
++    if (event.code === "Space") {
++      setSpacePressed(false);
++      setIsPanning(false);
++      panStateRef.current = null;
++    }
++  }, []);
++
++  const handleTouchPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
++    if (!children || event.pointerType !== "touch") return;
++    const rect = event.currentTarget.getBoundingClientRect();
++    const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
++    touchPointsRef.current.set(event.pointerId, point);
++    if (touchPointsRef.current.size === 2) {
++      const [first, second] = Array.from(touchPointsRef.current.values());
++      if (!first || !second) return;
++      pinchStateRef.current = {
++        center: { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 },
++        distance: Math.hypot(first.x - second.x, first.y - second.y),
++        view: viewRef.current,
++      };
++      event.preventDefault();
++    } else if (viewRef.current.scale > 1) {
++      panStateRef.current = {
++        pointerId: event.pointerId,
++        startOffset: viewRef.current.offset,
++        startPoint: point,
++      };
++    }
++  }, [children]);
++
++  const handleTouchPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
++    if (!children || event.pointerType !== "touch" || !touchPointsRef.current.has(event.pointerId)) return;
++    const rect = event.currentTarget.getBoundingClientRect();
++    touchPointsRef.current.set(event.pointerId, { x: event.clientX - rect.left, y: event.clientY - rect.top });
++    if (touchPointsRef.current.size >= 2) {
++      const [first, second] = Array.from(touchPointsRef.current.values());
++      const pinchState = pinchStateRef.current;
++      if (!first || !second || !pinchState) return;
++      event.preventDefault();
++      applyView(pinchPreviewCamera({
++        currentCenter: { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 },
++        currentDistance: Math.hypot(first.x - second.x, first.y - second.y),
++        maxScale: PREVIEW_CAMERA_MAX_SCALE,
++        minScale: PREVIEW_CAMERA_MIN_SCALE,
++        startCenter: pinchState.center,
++        startDistance: pinchState.distance,
++        startView: pinchState.view,
++      }));
++      return;
++    }
++    const panState = panStateRef.current;
++    if (panState?.pointerId === event.pointerId) {
++      event.preventDefault();
++      applyView({
++        offset: {
++          x: panState.startOffset.x + event.clientX - rect.left - panState.startPoint.x,
++          y: panState.startOffset.y + event.clientY - rect.top - panState.startPoint.y,
++        },
++        scale: viewRef.current.scale,
++      });
++    }
++  }, [applyView, children]);
++
++  const handleTouchPointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
++    if (event.pointerType !== "touch") return;
++    touchPointsRef.current.delete(event.pointerId);
++    if (touchPointsRef.current.size < 2) pinchStateRef.current = null;
++    if (touchPointsRef.current.size === 0) panStateRef.current = null;
++  }, []);
++
++  const handleBridgeMessage = useCallback(
++    (event: MessageEvent) => {
++      const frame = frameRef.current;
++      const viewport = viewportRef.current;
++      if (!frame || !viewport || event.source !== frame.contentWindow) return;
++      const parsed = previewCameraBridgeMessageSchema.safeParse(event.data);
++      if (!parsed.success || parsed.data.token !== token) return;
++      const now = performance.now();
++      const recent = messageTimesRef.current.filter((time) => now - time < 1_000);
++      if (recent.length >= PREVIEW_CAMERA_MAX_MESSAGES_PER_SECOND) return;
++      recent.push(now);
++      messageTimesRef.current = recent;
++      const message: PreviewCameraBridgeMessage = parsed.data;
++
++      if (message.type === "wheel") {
++        if (message.deltaMode < 0 || message.deltaMode > 2) return;
++        const point = mapFramePointToViewport({
++          frame,
++          point: { x: message.clientX, y: message.clientY },
++          viewport,
++        });
++        zoomAt(point, getWheelFactor(message.deltaY, message.deltaMode));
++        return;
++      }
++      if (message.type === "pinch-start") {
++        pinchStateRef.current = {
++          center: mapFramePointToViewport({
++            frame,
++            point: message.center,
++            viewport,
++          }),
++          distance: mapFrameDistanceToViewport(frame, message.distance),
++          view: viewRef.current,
++        };
++        return;
++      }
++      if (message.type === "pinch-change") {
++        const pinchState = pinchStateRef.current;
++        if (!pinchState) return;
++        applyView(
++          pinchPreviewCamera({
++            currentCenter: mapFramePointToViewport({
++              frame,
++              point: message.center,
++              viewport,
++            }),
++            currentDistance: mapFrameDistanceToViewport(frame, message.distance),
++            maxScale: PREVIEW_CAMERA_MAX_SCALE,
++            minScale: PREVIEW_CAMERA_MIN_SCALE,
++            startCenter: pinchState.center,
++            startDistance: pinchState.distance,
++            startView: pinchState.view,
++          }),
++        );
++        return;
++      }
++      if (message.type === "gesture-change") {
++        const point = mapFramePointToViewport({ frame, point: message.center, viewport });
++        zoomAt(point, message.ratio);
++        return;
++      }
++      if (message.type === "pinch-end") {
++        pinchStateRef.current = null;
++        return;
++      }
++      if (message.type === "space") {
++        setSpacePressed(!message.editable && viewRef.current.scale > 1 && message.pressed);
++        return;
++      }
++      if (message.type === "key" && !message.editable) {
++        if (message.key === "+" || message.key === "=" || message.key === "_") {
++          zoomStep(1);
++        } else if (message.key === "-") {
++          zoomStep(-1);
++        } else {
++          reset();
++        }
++      }
++    },
++    [applyView, reset, token, zoomAt, zoomStep],
++  );
++
++  useEffect(() => {
++    window.addEventListener("message", handleBridgeMessage);
++    return () => window.removeEventListener("message", handleBridgeMessage);
++  }, [handleBridgeMessage]);
++
++  useEffect(() => {
++    return () => {
++      if (frameRequestRef.current !== null) {
++        window.cancelAnimationFrame(frameRequestRef.current);
++      }
++      if (commitTimeoutRef.current !== null) {
++        window.clearTimeout(commitTimeoutRef.current);
++        commitTimeoutRef.current = null;
++        const pending = pendingScaleCommitRef.current;
++        pendingScaleCommitRef.current = null;
++        pending?.callback?.(pending.scale);
++      }
++    };
++  }, []);
++
++  useEffect(() => {
++    const clearPan = () => {
++      touchPointsRef.current.clear();
++      pinchStateRef.current = null;
++      panStateRef.current = null;
++      setSpacePressed(false);
++      setIsPanning(false);
++    };
++    const clearOnFocusExit = (event: FocusEvent) => {
++      if (event.relatedTarget instanceof Node && viewportRef.current?.contains(event.relatedTarget)) return;
++      clearPan();
++    };
++    const clearOnVisibility = () => {
++      if (document.hidden) clearPan();
++    };
++    window.addEventListener("blur", clearPan);
++    document.addEventListener("visibilitychange", clearOnVisibility);
++    viewportRef.current?.addEventListener("focusout", clearOnFocusExit);
++    return () => {
++      window.removeEventListener("blur", clearPan);
++      document.removeEventListener("visibilitychange", clearOnVisibility);
++      viewportRef.current?.removeEventListener("focusout", clearOnFocusExit);
++    };
++  }, []);
++
++  const handlePointerDown = useCallback(
++    (event: ReactPointerEvent<HTMLDivElement>) => {
++      if (!spacePressed || event.button !== 0) return;
++      event.preventDefault();
++      event.currentTarget.setPointerCapture(event.pointerId);
++      const rect = event.currentTarget.getBoundingClientRect();
++      panStateRef.current = {
++        pointerId: event.pointerId,
++        startOffset: viewRef.current.offset,
++        startPoint: { x: event.clientX - rect.left, y: event.clientY - rect.top },
++      };
++      setIsPanning(true);
++    },
++    [spacePressed],
++  );
++
++  const handlePointerMove = useCallback(
++    (event: ReactPointerEvent<HTMLDivElement>) => {
++      const panState = panStateRef.current;
++      if (!panState || panState.pointerId !== event.pointerId) return;
++      const rect = event.currentTarget.getBoundingClientRect();
++      applyView({
++        offset: {
++          x: panState.startOffset.x + event.clientX - rect.left - panState.startPoint.x,
++          y: panState.startOffset.y + event.clientY - rect.top - panState.startPoint.y,
++        },
++        scale: viewRef.current.scale,
++      });
++    },
++    [applyView],
++  );
++
++  const endPan = useCallback(() => {
++    panStateRef.current = null;
++    setIsPanning(false);
++  }, []);
++
++  const transformStyle: CSSProperties = {
++    transform: `translate(${view.offset.x}px, ${view.offset.y}px) scale(${view.scale})`,
++    transformOrigin: "top left",
++  };
++  const frameSrc = src ? addPreviewCameraBridgeToken(src, token) : undefined;
++
++  return (
++    <div
++      ref={viewportRef}
++      aria-label="Zoomable preview"
++      className={cn("relative h-full min-h-0 w-full overflow-hidden", className)}
++      style={{ ...style, ...(children ? { touchAction: "none" } : {}) }}
++      onKeyDown={handleKeyDown}
++      onKeyUp={handleKeyUp}
++      onLostPointerCapture={() => {
++        touchPointsRef.current.clear();
++        pinchStateRef.current = null;
++        panStateRef.current = null;
++        setIsPanning(false);
++      }}
++      onPointerDownCapture={handleTouchPointerDown}
++      onPointerMoveCapture={handleTouchPointerMove}
++      onPointerUpCapture={handleTouchPointerEnd}
++      onPointerCancelCapture={handleTouchPointerEnd}
++      role="group"
++      tabIndex={tabIndex}
++    >
++      <div className="absolute inset-0 overflow-hidden">
++        <div className="size-full" style={transformStyle}>
++          {frameSrc ? (
++            <iframe
++              key={token}
++              ref={frameRef}
++              title={title}
++              src={frameSrc}
++              sandbox={sandbox}
++              className="block size-full border-0 bg-background"
++              onLoad={onFrameLoad}
++              onError={onFrameError}
++            />
++          ) : (
++            <div className="flex size-full items-center justify-center">
++              {children}
++            </div>
++          )}
++        </div>
++      </div>
++      {spacePressed ? (
++        <div
++          aria-hidden="true"
++          className={cn(
++            "absolute inset-0 z-10 touch-none",
++            isPanning ? "cursor-grabbing" : "cursor-grab",
++          )}
++          onPointerCancel={endPan}
++          onPointerDown={handlePointerDown}
++          onPointerMove={handlePointerMove}
++          onPointerUp={endPan}
++        />
++      ) : null}
++      <div data-preview-camera-controls="" className="absolute right-2 top-2 z-20 flex items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm backdrop-blur">
++        <Button
++          aria-label="Zoom out"
++          className="size-9 p-0"
++          disabled={view.scale <= PREVIEW_CAMERA_MIN_SCALE}
++          onClick={() => zoomStep(-1)}
++          size="icon"
++          type="button"
++          variant="ghost"
++        >
++          <Icon name="ZoomOut" />
++        </Button>
++        <span aria-label="Zoom level" aria-live="off" className="min-w-12 text-center text-xs tabular-nums">
++          {Math.round(view.scale * 100)}%
++        </span>
++        <Button
++          aria-label="Zoom in"
++          className="size-9 p-0"
++          disabled={view.scale >= PREVIEW_CAMERA_MAX_SCALE}
++          onClick={() => zoomStep(1)}
++          size="icon"
++          type="button"
++          variant="ghost"
++        >
++          <Icon name="ZoomIn" />
++        </Button>
++        <Button
++          aria-label="Fit to view"
++          className="h-9 px-2 text-xs"
++          disabled={view.scale === 1 && view.offset.x === 0 && view.offset.y === 0}
++          onClick={reset}
++          type="button"
++          variant="ghost"
++        >
++          Вписать
++        </Button>
++      </div>
++    </div>
++  );
++}
+diff --git a/packages/templates/src/templates/bb-guide-threads.md b/packages/templates/src/templates/bb-guide-threads.md
+index d25f13c0d..61945bbda 100644
+--- a/packages/templates/src/templates/bb-guide-threads.md
++++ b/packages/templates/src/templates/bb-guide-threads.md
+@@ -399,6 +399,8 @@ Persisted panel tabs:
+   bb thread tabs show <thread-id>
+   bb thread tabs set <thread-id> --expected-revision <n> --tabs-json '<json>'
+ 
++  File preview tabs accept optional `previewZoom` from 1 through 8. It is stored per tab and validated by the same revision-checked schema used by the SDK.
++
+ Lifecycle:
+ 
+   bb thread retry [id]                     Retry the thread's failed turn
+diff --git a/plugins/bb-guide/skills/bb-cli/references/command-index.md b/plugins/bb-guide/skills/bb-cli/references/command-index.md
+index 7fb5dd27d..42ade0bc1 100644
+--- a/plugins/bb-guide/skills/bb-cli/references/command-index.md
++++ b/plugins/bb-guide/skills/bb-cli/references/command-index.md
+@@ -190,6 +190,7 @@ move and downloads the new server's bb-app package for its service.
+ - `bb thread tabs`
+ - `bb thread tabs show`
+ - `bb thread tabs set`
++  - File preview tab JSON accepts optional `previewZoom` (1..8), scoped to that tab.
+ - `bb thread update`
+ - `bb thread archive`
+ - `bb thread unarchive`
+diff --git a/plugins/inline-vis/app.test.tsx b/plugins/inline-vis/app.test.tsx
+index 18e32b97d..f174fc40b 100644
+--- a/plugins/inline-vis/app.test.tsx
++++ b/plugins/inline-vis/app.test.tsx
+@@ -127,11 +127,11 @@ describe("InlineVisDirective", () => {
+ 
+     expect(iframe.getAttribute("sandbox")).toBe("allow-scripts");
+     expect(iframe.getAttribute("sandbox")).not.toContain("allow-same-origin");
+-    expect(iframe.getAttribute("src")).toBe(
+-      "/api/v1/threads/thr_1/worktree/files/charts/demo%20file.html",
++    expect(iframe.getAttribute("src")).toContain(
++      "/api/v1/threads/thr_1/worktree/files/charts/demo%20file.html?__bbPreviewCamera=",
+     );
+     expect(iframe.getAttribute("srcdoc")).toBeNull();
+-    expect(iframe.style.height).toBe("224px");
++    expect(iframe.parentElement?.parentElement?.parentElement?.style.height).toBe("224px");
+     fireEvent.click(
+       slot.getByRole("button", {
+         name: "Open charts/demo file.html in sidebar",
+@@ -203,8 +203,8 @@ describe("InlineVisDirective", () => {
+       return el as HTMLIFrameElement;
+     });
+ 
+-    expect(iframe.getAttribute("src")).toBe(
+-      "/api/v1/threads/thr_1/thread-storage/files/reports/result%20file.html",
++    expect(iframe.getAttribute("src")).toContain(
++      "/api/v1/threads/thr_1/thread-storage/files/reports/result%20file.html?__bbPreviewCamera=",
+     );
+     expect(iframe.getAttribute("sandbox")).toBe("allow-scripts");
+     fireEvent.click(
+@@ -257,7 +257,7 @@ describe("InlineVisDirective", () => {
+       expect(el).toBeTruthy();
+       return el as HTMLIFrameElement;
+     });
+-    expect(iframe.style.height).toBe("480px");
++    expect(iframe.parentElement?.parentElement?.parentElement?.style.height).toBe("480px");
+   });
+ 
+   it("persists the collapsed preference for subsequent previews", async () => {
+@@ -373,10 +373,10 @@ describe("InlineVisDirective", () => {
+       }
+       return el;
+     });
+-    expect(iframe.style.height).toBe("480px");
+-    expect(slot.queryByRole("status")).toBeNull();
++    expect(iframe.parentElement?.parentElement?.parentElement?.style.height).toBe("480px");
++    expect(slot.queryByRole("status", { name: /Loading visualization/u })).toBeNull();
+ 
+-    const readyCard = iframe.parentElement!;
++    const readyCard = iframe.closest(".my-2.overflow-hidden.rounded-lg.border")!;
+     expect(readyCard.className).toBe(loadingCard.className);
+     const readyHeader = readyCard.firstElementChild!;
+     expect(readyHeader.className).toBe(loadingHeader.className);
+diff --git a/plugins/inline-vis/app.tsx b/plugins/inline-vis/app.tsx
+index 881cd1c09..827d83fda 100644
+--- a/plugins/inline-vis/app.tsx
++++ b/plugins/inline-vis/app.tsx
+@@ -1,5 +1,6 @@
+ import { useEffect, useState, type ReactNode } from "react";
+ import { Icon } from "@/components/ui/icon";
++import { PreviewCamera } from "@bb/shared-ui/preview-camera";
+ import { Skeleton } from "@/components/ui/skeleton";
+ import {
+   definePluginApp,
+@@ -295,12 +296,12 @@ function InlineVisDirective({
+           />
+         </div>
+       ) : (
+-        <iframe
++        <PreviewCamera
+           title={`inline-vis: ${state.file}`}
+           src={buildPreviewUrl(message.threadId, state.file, state.source)}
+           sandbox="allow-scripts"
+           style={{ height: previewHeight ?? DEFAULT_HEIGHT_PX }}
+-          className="block w-full border-0 bg-background"
++          className="w-full bg-background"
+         />
+       )}
+     </PreviewCard>
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 8d9db28f0..6aa9051cc 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -2588,6 +2588,9 @@ importers:
+ 
+   packages/shared-ui:
+     dependencies:
++      '@bb/server-contract':
++        specifier: workspace:*
++        version: link:../server-contract
+       '@hugeicons/core-free-icons':
+         specifier: ^4.3.4
+         version: 4.3.4
