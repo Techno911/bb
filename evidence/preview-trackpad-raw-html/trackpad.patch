@@ -1,0 +1,634 @@
+diff --git a/apps/app/scripts/preview-camera-isolated-qa.mjs b/apps/app/scripts/preview-camera-isolated-qa.mjs
+index 63c245b31..b645ee29f 100644
+--- a/apps/app/scripts/preview-camera-isolated-qa.mjs
++++ b/apps/app/scripts/preview-camera-isolated-qa.mjs
+@@ -245,6 +245,17 @@ try {
+   await delay(350);
+   const reset = await evaluate("getComputedStyle(document.querySelector('[aria-label=\"Zoomable preview\"] > div > div')).transform");
+   const persistedResetScale = await evaluate("Number(localStorage.getItem('previewZoom'))");
++  const cornerFocalDeltas = [];
++  for (const corner of [{ x: 4, y: 4 }, { x: frame.viewport.width - 4, y: 4 }, { x: 4, y: frame.viewport.height - 4 }, { x: frame.viewport.width - 4, y: frame.viewport.height - 4 }]) {
++    const viewportBox = await evaluate("document.querySelector('[aria-label=\"Zoomable preview\"]').getBoundingClientRect().toJSON()");
++    const wheelPoint = { x: viewportBox.x + corner.x, y: viewportBox.y + corner.y };
++    await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: wheelPoint.x, y: wheelPoint.y, deltaY: -50, deltaX: 0, modifiers: 2 });
++    await delay(300);
++    const zoomed = await evaluate("(()=>{const v=document.querySelector('[aria-label=\"Zoomable preview\"]').getBoundingClientRect();const m=new DOMMatrixReadOnly(getComputedStyle(document.querySelector('[aria-label=\"Zoomable preview\"] > div > div')).transform);return {a:m.a,e:m.e,f:m.f,vx:v.x,vy:v.y};})()");
++    cornerFocalDeltas.push({ point: corner, scale: zoomed.a, delta: Math.hypot(zoomed.vx + zoomed.e + zoomed.a * corner.x - wheelPoint.x, zoomed.vy + zoomed.f + zoomed.a * corner.y - wheelPoint.y) });
++    await evaluate("document.querySelector('[aria-label=\"Fit to view\"]').click()");
++    await delay(300);
++  }
+   const reactCancelableWheel = await evaluate("(()=>{const target=document.querySelector('[aria-label=\"Zoomable preview\"]');const event=new WheelEvent('wheel',{bubbles:true,cancelable:true,ctrlKey:true,deltaY:-40});const dispatchResult=target.dispatchEvent(event);return {cancelable:event.cancelable,defaultPrevented:event.defaultPrevented,dispatchResult}})()");
+   const metrics = {
+     input: "synthetic CDP Ctrl+wheel dispatched over the opaque iframe",
+@@ -273,11 +284,12 @@ try {
+     persistedScale,
+     persistedRoundTrip,
+     persistedResetScale,
++    cornerFocalDeltas,
+     reactCancelableWheel,
+     screenshots: { before: path.basename(screenshotBefore), after: path.basename(screenshotAfter) },
+   };
+   await writeFile(metricsPath, `${JSON.stringify(metrics, null, 2)}\n`);
+-  if (focalDelta > 1 || pinchScale < pinchStartScale * 1.4 || gestureMessagesDuringTouch !== gestureMessagesBeforeOverlap || syntheticSafariGestureSuppression.some((event) => !event.defaultPrevented) || scrollY <= 0 || selectedText.length < 5 || textareaValuePreserved !== "<head>" || inputValue !== "typed" || linkHash !== "#link-clicked" || Math.abs(panDelta.x - 30) > 1 || Math.abs(panDelta.y - 20) > 1 || reset !== "matrix(1, 0, 0, 1, 0, 0)" || persistedScale <= 1 || persistedRoundTrip.stored !== persistedScale || Math.abs(persistedRoundTrip.scale - persistedScale) > 0.005 || persistedResetScale !== 1 || !reactCancelableWheel.cancelable || !reactCancelableWheel.defaultPrevented || reactCancelableWheel.dispatchResult) {
++  if (focalDelta > 1 || cornerFocalDeltas.some((corner) => corner.delta > 1) || pinchScale < pinchStartScale * 1.4 || gestureMessagesDuringTouch !== gestureMessagesBeforeOverlap || syntheticSafariGestureSuppression.some((event) => !event.defaultPrevented) || scrollY <= 0 || selectedText.length < 5 || textareaValuePreserved !== "<head>" || inputValue !== "typed" || linkHash !== "#link-clicked" || Math.abs(panDelta.x - 30) > 1 || Math.abs(panDelta.y - 20) > 1 || reset !== "matrix(1, 0, 0, 1, 0, 0)" || persistedScale <= 1 || persistedRoundTrip.stored !== persistedScale || Math.abs(persistedRoundTrip.scale - persistedScale) > 0.005 || persistedResetScale !== 1 || !reactCancelableWheel.cancelable || !reactCancelableWheel.defaultPrevented || reactCancelableWheel.dispatchResult) {
+     throw new Error(`Production camera browser proof failed: ${JSON.stringify(metrics)}`);
+   }
+   socket.close();
+diff --git a/apps/app/src/components/ui/preview-camera.test.tsx b/apps/app/src/components/ui/preview-camera.test.tsx
+index 75e7a9414..d6cec4a71 100644
+--- a/apps/app/src/components/ui/preview-camera.test.tsx
++++ b/apps/app/src/components/ui/preview-camera.test.tsx
+@@ -159,4 +159,74 @@ describe("PreviewCamera", () => {
+     fireEvent.pointerMove(viewport, { pointerId: 3, pointerType: "touch", clientX: 250, clientY: 100 });
+     await waitFor(() => expect(screen.getByLabelText("Zoom level").textContent).toBe("300%"));
+   });
++
++  it("zooms children on webkit gesture events and suppresses ctrl wheel during the gesture", async () => {
++    render(<PreviewCamera><img alt="fixture" src="/image.png" /></PreviewCamera>);
++    const viewport = screen.getByRole("group", { name: "Zoomable preview" });
++    const gesture = (type: string, scale: number) => {
++      const event = new Event(type, { bubbles: true, cancelable: true });
++      Object.defineProperties(event, {
++        clientX: { value: 200 },
++        clientY: { value: 150 },
++        scale: { value: scale },
++      });
++      act(() => {
++        viewport.dispatchEvent(event);
++      });
++      return event;
++    };
++    expect(gesture("gesturestart", 1).defaultPrevented).toBe(true);
++    gesture("gesturechange", 2);
++    await waitFor(() => expect(screen.getByLabelText("Zoom level").textContent).toBe("200%"));
++    fireEvent.wheel(viewport, { ctrlKey: true, deltaY: -100 });
++    await waitFor(() => expect(screen.getByLabelText("Zoom level").textContent).toBe("200%"));
++    gesture("gestureend", 2);
++    fireEvent.wheel(viewport, { ctrlKey: true, deltaY: -100 });
++    await waitFor(() => expect(screen.getByLabelText("Zoom level").textContent).toBe("244%"));
++  });
++
++  it("maps iframe pinch distances through the applied zoom", async () => {
++    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => window.setTimeout(() => callback(performance.now()), 0));
++    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((requestId) => window.clearTimeout(requestId));
++    render(<PreviewCamera src="/preview/report.html" title="report" />);
++    const frame = screen.getByTitle("report") as HTMLIFrameElement;
++    const token = new URL(frame.src).searchParams.get("__bbPreviewCamera");
++    Object.defineProperty(frame, "clientWidth", { value: 800, configurable: true });
++    Object.defineProperty(frame, "clientHeight", { value: 600, configurable: true });
++    vi.spyOn(frame, "getBoundingClientRect").mockImplementation(() => {
++      const scale =
++        Number(
++          screen.getByLabelText("Zoom level").textContent?.replace("%", "") ?? 100,
++        ) / 100;
++      return {
++        bottom: 600 * scale,
++        height: 600 * scale,
++        left: 0,
++        right: 800 * scale,
++        top: 0,
++        width: 800 * scale,
++        x: 0,
++        y: 0,
++        toJSON: () => ({}),
++      } as DOMRect;
++    });
++    const send = (type: string, distance: number) =>
++      act(() =>
++        window.dispatchEvent(
++          bridgeEvent(frame, {
++            type,
++            token,
++            version: 1,
++            center: { x: 400, y: 300 },
++            distance,
++          }),
++        ),
++      );
++    send("pinch-start", 100);
++    send("pinch-change", 125);
++    await waitFor(() => expect(screen.getByLabelText("Zoom level").textContent).toBe("125%"));
++    send("pinch-change", 120);
++    await waitFor(() => expect(screen.getByLabelText("Zoom level").textContent).toBe("150%"));
++    send("pinch-end", 120);
++  });
+ });
+diff --git a/apps/app/src/lib/file-content-urls.ts b/apps/app/src/lib/file-content-urls.ts
+index cee2fd316..809fd03bb 100644
+--- a/apps/app/src/lib/file-content-urls.ts
++++ b/apps/app/src/lib/file-content-urls.ts
+@@ -41,9 +41,11 @@ export function buildProjectFileContentUrl(
+     routing.hostId === null
+       ? apiClient.projects[":id"].files[":filePath{.+}"].$url({
+           param: { id: projectId, filePath },
++          query: {},
+         })
+       : apiClient.projects[":id"].hosts[":hostId"].files[":filePath{.+}"].$url({
+           param: { id: projectId, hostId: routing.hostId, filePath },
++          query: {},
+         }),
+   );
+ }
+@@ -58,6 +60,7 @@ export function buildEnvironmentFileContentUrl(
+     return toRelativeUrl(
+       apiClient.environments[":id"].files[":filePath{.+}"].$url({
+         param: { id: environmentId, filePath },
++        query: {},
+       }),
+     );
+   }
+@@ -69,6 +72,7 @@ export function buildEnvironmentFileContentUrl(
+           ref: source.kind === "head" ? "HEAD" : source.ref,
+           filePath,
+         },
++        query: {},
+       },
+     ),
+   );
+@@ -93,6 +97,7 @@ export function buildThreadHostFileContentUrl(
+   return toRelativeUrl(
+     apiClient.threads[":id"]["host-files"][":filePath{.+}"].$url({
+       param: { id: threadId, filePath: encodeHostFilePath(absolutePath) },
++      query: {},
+     }),
+   );
+ }
+@@ -104,6 +109,7 @@ export function buildHostFileContentUrl(
+   return toRelativeUrl(
+     apiClient.hosts[":id"].files[":filePath{.+}"].$url({
+       param: { id: hostId, filePath: encodeHostFilePath(absolutePath) },
++      query: {},
+     }),
+   );
+ }
+diff --git a/apps/server/src/routes/files.ts b/apps/server/src/routes/files.ts
+index 1d1c4c2dd..4b79c1ef0 100644
+--- a/apps/server/src/routes/files.ts
++++ b/apps/server/src/routes/files.ts
+@@ -148,6 +148,36 @@ function parseRevisionRef(ref: string): string {
+   return ref;
+ }
+ 
++function createBridgedHtmlPreviewResponse(
++  result: Exclude<DaemonFileReadResult, { notModified: true }>,
++  cameraToken: string,
++  request: Request,
++): Response {
++  assertRawFilesystemHtmlPreviewResult(result);
++  const bridged = injectHtmlPreviewCameraBridge(
++    result.content,
++    cameraToken,
++    new URL(request.url).origin,
++  );
++  return createDaemonFileContentResponse(
++    {
++      ...result,
++      content: bridged.content,
++      contentEncoding: "utf8" as const,
++      sizeBytes: bridged.sizeBytes,
++      sha256: bridged.sha256,
++    },
++    {
++      headers: {
++        "cache-control": NO_STORE_CACHE_CONTROL,
++        "content-security-policy": HTML_PREVIEW_CSP,
++        "content-type": HTML_PREVIEW_CONTENT_TYPE,
++        "x-content-type-options": NOSNIFF_CONTENT_TYPE_OPTIONS,
++      },
++    },
++  );
++}
++
+ async function serveRootedFile(
+   deps: AppDeps,
+   request: Request,
+@@ -155,6 +185,33 @@ async function serveRootedFile(
+   segments: string[],
+ ): Promise<Response> {
+   const filePath = joinHostPath(root.rootPath, segments);
++  const cameraToken = getHtmlPreviewCameraToken(new URL(request.url));
++  if (
++    cameraToken !== undefined &&
++    isHtmlMimeType(mimeTypes.lookup(filePath) || null)
++  ) {
++    const result =
++      root.ref === null
++        ? await readBoundedDaemonFileContent(deps, {
++            hostId: root.hostId,
++            path: filePath,
++            rootPath: root.rootPath,
++            maxBytes: HTML_PREVIEW_MAX_BYTES,
++          })
++        : requireDaemonFileContentResult(
++            await callHostRetryableOnlineRpc(deps, {
++              hostId: root.hostId,
++              timeoutMs: COMMAND_TIMEOUT_MS,
++              command: {
++                type: "host.read_file",
++                path: filePath,
++                rootPath: root.rootPath,
++                ref: root.ref,
++              },
++            }).catch(remapDaemonFileRouteError),
++          );
++    return createBridgedHtmlPreviewResponse(result, cameraToken, request);
++  }
+   if (root.ref === null) {
+     return serveDaemonFileStream(
+       deps,
+diff --git a/apps/server/src/routes/threads/data.ts b/apps/server/src/routes/threads/data.ts
+index 61522db7d..c497b28bd 100644
+--- a/apps/server/src/routes/threads/data.ts
++++ b/apps/server/src/routes/threads/data.ts
+@@ -42,7 +42,6 @@ import {
+   throwThreadEnvironmentUnavailable,
+ } from "../../services/lib/lifecycle-api-errors.js";
+ import { callHostRetryableOnlineRpc } from "../../services/hosts/online-rpc.js";
+-import { serveDaemonFileStream } from "../../services/hosts/daemon-file-stream.js";
+ import { parseSafeRelativeRoutePath } from "../relative-route-path.js";
+ import {
+   createDaemonFileContentResponse,
+@@ -251,48 +250,6 @@ function createRawFilePreviewResponse(
+   });
+ }
+ 
+-async function serveThreadStorageRawFile(
+-  deps: LoggedWorkSessionDeps,
+-  threadId: string,
+-  rawPath: string,
+-  request: Request,
+-  cameraToken: string | undefined,
+-  targetOrigin: string,
+-): Promise<Response> {
+-  const filePath = parseSafeRelativeRoutePath(rawPath);
+-  const target = await requireThreadStorageTarget(deps, threadId);
+-  if (cameraToken) {
+-    return serveDaemonFileContent(deps, { hostId: target.hostId, path: path.join(target.storagePath, filePath.relativePath), rootPath: target.storagePath }, (result) => {
+-      const availableResult = requireDaemonFileContentResult(result);
+-      assertHtmlPreviewSize(filePath.relativePath, availableResult.sizeBytes);
+-      if (availableResult.contentEncoding !== "utf8" || !availableResult.mimeType?.toLowerCase().startsWith("text/html")) throw new ApiError(415, "unsupported_media_type", "Preview bridge requires UTF-8 HTML", false);
+-      const bridged = injectHtmlPreviewCameraBridge(availableResult.content, cameraToken, targetOrigin);
+-      return createRawFilePreviewResponse({ ...availableResult, content: bridged.content, sizeBytes: bridged.sizeBytes, sha256: bridged.sha256 }, filePath.relativePath, undefined, true);
+-    });
+-  }
+-  return serveDaemonFileStream(
+-    deps,
+-    {
+-      hostId: target.hostId,
+-      path: path.join(target.storagePath, filePath.relativePath),
+-      rootPath: target.storagePath,
+-    },
+-    request,
+-    (metadata) => {
+-      assertHtmlPreviewSize(filePath.relativePath, metadata.sizeBytes);
+-      const headers = new Headers({
+-        "x-content-type-options": RAW_FILE_CONTENT_TYPE_OPTIONS,
+-      });
+-      if (isHtmlPreviewPath(filePath.relativePath)) {
+-        headers.set("cache-control", RAW_FILE_NO_STORE_CACHE_CONTROL);
+-        headers.set("content-security-policy", GENERIC_HTML_PREVIEW_CSP);
+-        headers.set("content-type", RAW_FILE_HTML_CONTENT_TYPE);
+-      }
+-      return headers;
+-    },
+-  );
+-}
+-
+ async function serveThreadWorktreeRawFile(
+   deps: LoggedWorkSessionDeps,
+   threadId: string,
+@@ -748,17 +705,6 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
+     });
+   });
+ 
+-  get(routes.storageFile, async (context, query) =>
+-    serveThreadStorageRawFile(
+-      deps,
+-      context.req.param("id"),
+-      context.req.param("filePath"),
+-      context.req.raw,
+-      query.__bbPreviewCamera,
+-      new URL(context.req.url).origin,
+-    ),
+-  );
+-
+   get(routes.storagePaths, async (context, query) => {
+     const target = await requireThreadStorageTarget(deps, context.req.param("id"));
+     const limit = parseFileListLimit(query.limit);
+diff --git a/apps/server/test/files/file-content-routes.test.ts b/apps/server/test/files/file-content-routes.test.ts
+index e27836297..7b3cbf41a 100644
+--- a/apps/server/test/files/file-content-routes.test.ts
++++ b/apps/server/test/files/file-content-routes.test.ts
+@@ -424,6 +424,132 @@ describe("file content routes", () => {
+     });
+   });
+ 
++  it("injects the preview camera bridge into raw HTML file routes", async () => {
++    const cameraToken = "123e4567-e89b-42d3-a456-426614174000";
++    const html = Buffer.from("<!doctype html><h1>Preview</h1>");
++    await withTestHarness(async (harness) => {
++      const { host, session, thread, environment } = seedThreadFixture(harness, {
++        environment: { path: "/tmp/lease-env" },
++      });
++      seedPrimaryHost(harness.deps, host.id);
++      const { project } = seedProjectWithSource(harness.deps, {
++        hostId: host.id,
++        path: "/primary/project",
++      });
++      const storageRoot = `/tmp/bb-host-data/${host.id}/thread-storage/${thread.id}`;
++      const files = new Map<string, HostFile>([
++        [`${storageRoot}/report.html`, { bytes: html, mimeType: "text/html" }],
++        ["/Users/me/page.html", { bytes: html, mimeType: "text/html" }],
++        ["/tmp/lease-env/report.html", { bytes: html, mimeType: "text/html" }],
++        ["/primary/project/report.html", { bytes: html, mimeType: "text/html" }],
++        [`${storageRoot}/clip.mp4`, { bytes: Buffer.from([0, 1, 2]), mimeType: "video/mp4" }],
++        [`${storageRoot}/large.html`, { bytes: Buffer.alloc(6 * 1024 * 1024, "a"), mimeType: "text/html" }],
++      ]);
++      serveFiles(harness, { hostId: host.id, sessionId: session.id, files });
++
++      const urls = [
++        `/api/v1/threads/${thread.id}/thread-storage/files/report.html`,
++        `/api/v1/threads/${thread.id}/host-files/Users/me/page.html`,
++        `/api/v1/environments/${environment.id}/files/report.html`,
++        `/api/v1/projects/${project.id}/files/report.html`,
++        `/api/v1/projects/${project.id}/hosts/${host.id}/files/report.html`,
++        `/api/v1/hosts/${host.id}/files/Users/me/page.html`,
++      ];
++      for (const url of urls) {
++        const response = await harness.app.request(
++          `${url}?__bbPreviewCamera=${cameraToken}`,
++        );
++        expect(response.status).toBe(200);
++        expect(response.headers.get("content-security-policy")).toBe(
++          "sandbox allow-scripts",
++        );
++        expect(response.headers.get("cache-control")).toBe("no-store");
++        const body = await response.text();
++        expect(body).toContain("gesture-change");
++        expect(body).toContain(cameraToken);
++      }
++
++      const ranged = await harness.app.request(
++        `/api/v1/threads/${thread.id}/thread-storage/files/report.html?__bbPreviewCamera=${cameraToken}`,
++        { headers: { Range: "bytes=0-3" } },
++      );
++      expect(ranged.status).toBe(200);
++      expect(ranged.headers.get("content-range")).toBeNull();
++      expect(await ranged.text()).toContain("gesture-change");
++
++      const invalid = await harness.app.request(
++        `/api/v1/threads/${thread.id}/thread-storage/files/report.html?__bbPreviewCamera=not-a-uuid`,
++      );
++      expect(invalid.status).toBe(400);
++
++      const invalidHostFile = await harness.app.request(
++        `/api/v1/threads/${thread.id}/host-files/Users/me/page.html?__bbPreviewCamera=not-a-uuid`,
++      );
++      expect(invalidHostFile.status).toBe(400);
++
++      const tooLarge = await harness.app.request(
++        `/api/v1/threads/${thread.id}/thread-storage/files/large.html?__bbPreviewCamera=${cameraToken}`,
++      );
++      expect(tooLarge.status).toBe(413);
++
++      const nonHtml = await harness.app.request(
++        `/api/v1/threads/${thread.id}/thread-storage/files/clip.mp4?__bbPreviewCamera=${cameraToken}`,
++        { headers: { Range: "bytes=0-1" } },
++      );
++      expect(nonHtml.status).toBe(206);
++      expect(Buffer.from(await nonHtml.arrayBuffer())).toEqual(
++        Buffer.from([0, 1]),
++      );
++    });
++  });
++
++  it("injects the preview camera bridge into revision file HTML", async () => {
++    const cameraToken = "123e4567-e89b-42d3-a456-426614174000";
++    const html = Buffer.from("<!doctype html><h1>Revision preview</h1>");
++    await withTestHarness(async (harness) => {
++      const { host, session, environment } = seedThreadFixture(harness, {
++        environment: { path: "/tmp/lease-env" },
++      });
++      registerHostRpcResponder(harness, {
++        hostId: host.id,
++        sessionId: session.id,
++        handle: ({ command }) => {
++          if (command.type !== "host.read_file") {
++            throw new Error(`Unexpected command ${command.type}`);
++          }
++          return {
++            ok: true,
++            result: {
++              path: command.path,
++              content: html.toString("utf8"),
++              contentEncoding: "utf8",
++              mimeType: "text/html",
++              sizeBytes: html.length,
++              sha256: "a".repeat(64),
++            },
++          };
++        },
++      });
++
++      const response = await harness.app.request(
++        `/api/v1/environments/${environment.id}/revisions/${"0".repeat(40)}/files/report.html?__bbPreviewCamera=${cameraToken}`,
++      );
++      expect(response.status).toBe(200);
++      expect(response.headers.get("content-security-policy")).toBe(
++        "sandbox allow-scripts",
++      );
++      expect(response.headers.get("cache-control")).toBe("no-store");
++      const body = await response.text();
++      expect(body).toContain("gesture-change");
++      expect(body).toContain(cameraToken);
++
++      const invalid = await harness.app.request(
++        `/api/v1/environments/${environment.id}/revisions/${"0".repeat(40)}/files/report.html?__bbPreviewCamera=bad`,
++      );
++      expect(invalid.status).toBe(400);
++    });
++  });
++
+   it("maps Windows drive paths to the drive root and rejects backslash traversal", async () => {
+     await withTestHarness(async (harness) => {
+       const { host, session } = seedHostSession(harness.deps);
+diff --git a/packages/server-contract/src/public-api.ts b/packages/server-contract/src/public-api.ts
+index 9039bf229..b94b33a38 100644
+--- a/packages/server-contract/src/public-api.ts
++++ b/packages/server-contract/src/public-api.ts
+@@ -565,13 +565,17 @@ export const publicApiRoutes = {
+     file: defineRoute({
+       path: "/projects/:id/files/:filePath{.+}",
+       method: "get",
+-      request: noRequest<PathIdAndFilePath>(),
++      request: queryRequest<PathIdAndFilePath, PreviewCameraBridgeQuery>(
++        previewCameraBridgeQuerySchema,
++      ),
+       response: binaryResponse<Uint8Array>(),
+     }),
+     hostFile: defineRoute({
+       path: "/projects/:id/hosts/:hostId/files/:filePath{.+}",
+       method: "get",
+-      request: noRequest<PathIdHostAndFilePath>(),
++      request: queryRequest<PathIdHostAndFilePath, PreviewCameraBridgeQuery>(
++        previewCameraBridgeQuerySchema,
++      ),
+       response: binaryResponse<Uint8Array>(),
+     }),
+     paths: defineRoute({
+@@ -948,7 +952,9 @@ export const publicApiRoutes = {
+     file: defineRoute({
+       path: "/hosts/:id/files/:filePath{.+}",
+       method: "get",
+-      request: noRequest<PathIdAndFilePath>(),
++      request: queryRequest<PathIdAndFilePath, PreviewCameraBridgeQuery>(
++        previewCameraBridgeQuerySchema,
++      ),
+       response: binaryResponse<Uint8Array>(),
+     }),
+     cloneDefaultPath: defineRoute({
+@@ -1213,13 +1219,17 @@ export const publicApiRoutes = {
+     file: defineRoute({
+       path: "/environments/:id/files/:filePath{.+}",
+       method: "get",
+-      request: noRequest<PathIdAndFilePath>(),
++      request: queryRequest<PathIdAndFilePath, PreviewCameraBridgeQuery>(
++        previewCameraBridgeQuerySchema,
++      ),
+       response: binaryResponse<Uint8Array>(),
+     }),
+     revisionFile: defineRoute({
+       path: "/environments/:id/revisions/:ref/files/:filePath{.+}",
+       method: "get",
+-      request: noRequest<PathIdRefAndFilePath>(),
++      request: queryRequest<PathIdRefAndFilePath, PreviewCameraBridgeQuery>(
++        previewCameraBridgeQuerySchema,
++      ),
+       response: binaryResponse<Uint8Array>(),
+     }),
+     actions: defineRoute({
+@@ -1728,7 +1738,9 @@ export const publicApiRoutes = {
+     hostFile: defineRoute({
+       path: "/threads/:id/host-files/:filePath{.+}",
+       method: "get",
+-      request: noRequest<PathIdAndFilePath>(),
++      request: queryRequest<PathIdAndFilePath, PreviewCameraBridgeQuery>(
++        previewCameraBridgeQuerySchema,
++      ),
+       response: binaryResponse<Uint8Array>(),
+     }),
+     storagePaths: defineRoute({
+diff --git a/packages/server-contract/test/contract.test.ts b/packages/server-contract/test/contract.test.ts
+index 8ee816c78..41547165c 100644
+--- a/packages/server-contract/test/contract.test.ts
++++ b/packages/server-contract/test/contract.test.ts
+@@ -1943,6 +1943,7 @@ describe("server-contract clients", () => {
+     expect(
+       publicClient.projects[":id"].files[":filePath{.+}"].$url({
+         param: { id: "proj_123", filePath: "src/app.ts" },
++        query: {},
+       }).pathname,
+     ).toBe("/api/v1/projects/proj_123/files/src/app.ts");
+     expect(
+diff --git a/packages/shared-ui/src/components/ui/preview-camera.tsx b/packages/shared-ui/src/components/ui/preview-camera.tsx
+index 8cd5d3938..adaebdec6 100644
+--- a/packages/shared-ui/src/components/ui/preview-camera.tsx
++++ b/packages/shared-ui/src/components/ui/preview-camera.tsx
+@@ -160,6 +160,7 @@ export function PreviewCamera({
+   const pendingViewRef = useRef<PreviewCameraView | null>(null);
+   const frameRequestRef = useRef<number | null>(null);
+   const pinchStateRef = useRef<PreviewCameraPinchState | null>(null);
++  const gesturePinchActiveRef = useRef(false);
+   const panStateRef = useRef<PreviewCameraPanState | null>(null);
+   const messageTimesRef = useRef<number[]>([]);
+   const commitTimeoutRef = useRef<number | null>(null);
+@@ -285,6 +286,7 @@ export function PreviewCamera({
+     setSpacePressed(false);
+     setIsPanning(false);
+     pinchStateRef.current = null;
++    gesturePinchActiveRef.current = false;
+     panStateRef.current = null;
+   }, [initialScale, src]);
+ 
+@@ -294,6 +296,7 @@ export function PreviewCamera({
+     const handleWheel = (event: WheelEvent) => {
+       if (!event.ctrlKey || isEditableElement(event.target)) return;
+       event.preventDefault();
++      if (gesturePinchActiveRef.current) return;
+       const rect = viewport.getBoundingClientRect();
+       zoomAt(
+         {
+@@ -303,9 +306,63 @@ export function PreviewCamera({
+         getWheelFactor(event.deltaY, event.deltaMode),
+       );
+     };
++    const gesturePoint = (event: Event): PreviewCameraPoint => {
++      const rect = viewport.getBoundingClientRect();
++      const { clientX, clientY } = event as {
++        clientX?: number;
++        clientY?: number;
++      };
++      return {
++        x: Number.isFinite(clientX) ? (clientX as number) - rect.left : rect.width / 2,
++        y: Number.isFinite(clientY) ? (clientY as number) - rect.top : rect.height / 2,
++      };
++    };
++    const handleGestureStart = (event: Event) => {
++      if (isEditableElement(event.target)) return;
++      event.preventDefault();
++      gesturePinchActiveRef.current = true;
++      pinchStateRef.current = {
++        center: gesturePoint(event),
++        distance: 1,
++        view: viewRef.current,
++      };
++    };
++    const handleGestureChange = (event: Event) => {
++      if (!gesturePinchActiveRef.current) return;
++      event.preventDefault();
++      const scale = (event as { scale?: number }).scale;
++      if (typeof scale !== "number" || !Number.isFinite(scale)) return;
++      const pinchState = pinchStateRef.current;
++      if (!pinchState) return;
++      applyView(
++        pinchPreviewCamera({
++          currentCenter: gesturePoint(event),
++          currentDistance: scale,
++          maxScale: PREVIEW_CAMERA_MAX_SCALE,
++          minScale: PREVIEW_CAMERA_MIN_SCALE,
++          startCenter: pinchState.center,
++          startDistance: 1,
++          startView: pinchState.view,
++        }),
++      );
++    };
++    const handleGestureEnd = (event: Event) => {
++      if (!gesturePinchActiveRef.current) return;
++      event.preventDefault();
++      gesturePinchActiveRef.current = false;
++      pinchStateRef.current = null;
++    };
+     viewport.addEventListener("wheel", handleWheel, { capture: true, passive: false });
+-    return () => viewport.removeEventListener("wheel", handleWheel, true);
+-  }, [zoomAt]);
++    viewport.addEventListener("gesturestart", handleGestureStart, { passive: false });
++    viewport.addEventListener("gesturechange", handleGestureChange, { passive: false });
++    viewport.addEventListener("gestureend", handleGestureEnd, { passive: false });
++    return () => {
++      viewport.removeEventListener("wheel", handleWheel, true);
++      viewport.removeEventListener("gesturestart", handleGestureStart);
++      viewport.removeEventListener("gesturechange", handleGestureChange);
++      viewport.removeEventListener("gestureend", handleGestureEnd);
++    };
++  }, [applyView, zoomAt]);
+ 
+   const handleKeyDown = useCallback(
+     (event: ReactKeyboardEvent<HTMLDivElement>) => {
+@@ -506,6 +563,7 @@ export function PreviewCamera({
+     const clearPan = () => {
+       touchPointsRef.current.clear();
+       pinchStateRef.current = null;
++      gesturePinchActiveRef.current = false;
+       panStateRef.current = null;
+       setSpacePressed(false);
+       setIsPanning(false);
